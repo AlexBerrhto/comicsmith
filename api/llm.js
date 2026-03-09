@@ -1,71 +1,43 @@
 // api/llm.js
-// Vercel Serverless Function — proxies LLM calls to Google Gemini
-// Keeps your API key secret (never exposed to the browser)
-
+// Vercel Serverless Function — proxies LLM calls to Groq
 export default async function handler(req, res) {
-  // Only allow POST
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { system, userMsg, maxTokens = 1000 } = req.body;
+  const { userMsg, systemMsg } = req.body;
+  if (!userMsg) return res.status(400).json({ error: "userMsg is required" });
 
-  if (!userMsg) {
-    return res.status(400).json({ error: "userMsg is required" });
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
-  }
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: "GROQ_API_KEY not configured" });
 
   try {
-    // Build Gemini request
-    // System prompt goes into systemInstruction, user message into contents
-    const geminiBody = {
-      systemInstruction: system
-        ? { parts: [{ text: system }] }
-        : undefined,
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: userMsg }],
-        },
-      ],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature: 0.7,
-      },
-    };
+    const messages = [];
+    if (systemMsg) messages.push({ role: "system", content: systemMsg });
+    messages.push({ role: "user", content: userMsg });
 
-   const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview-06-17:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiBody),
-      }
-    );
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages,
+        max_tokens: 1000,
+        temperature: 0.7,
+      }),
+    });
+
     if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      console.error("Gemini API error:", errBody);
-      return res.status(response.status).json({
-        error: errBody?.error?.message || `Gemini error ${response.status}`,
-      });
+      const err = await response.json().catch(() => ({}));
+      return res.status(response.status).json({ error: err.error?.message || "Groq error" });
     }
 
     const data = await response.json();
-
-    // Extract text from Gemini response format
-    const text =
-      data?.candidates?.[0]?.content?.parts
-        ?.map((p) => p.text || "")
-        .join("") || "";
-
+    const text = data.choices?.[0]?.message?.content || "";
     return res.status(200).json({ text });
 
   } catch (err) {
-    console.error("Proxy error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
