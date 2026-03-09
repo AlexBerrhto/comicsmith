@@ -904,10 +904,23 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
 
       <Card style={{ marginBottom: "16px" }}>
         <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
-        <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
-          rows={3} placeholder="Describe the background environment..."
-          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-        <PreviewBox previewKey="bg" prompt={`${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle`} label="BACKGROUND" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
+            <div>
+                <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
+                rows={4} placeholder="Describe the background environment..."
+                style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+                <Btn onClick={() => generatePreview("bg", `${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle, comic book illustration, bold ink outlines`)} variant="secondary"
+                style={{ marginTop: "8px", fontSize: "11px", padding: "6px 12px", opacity: loading["bg"] ? 0.6 : 1 }}>
+                {loading["bg"] ? "⟳ GENERATING..." : previews["bg"] ? "↺ REGENERATE" : "🖼 PREVIEW"}
+                </Btn>
+            </div>
+            <div>
+                {previews["bg"]
+                ? <img src={previews["bg"]} alt="background" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                }
+            </div>
+            </div>
       </Card>
 
       <Card style={{ marginBottom: "16px" }}>
@@ -930,7 +943,18 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
             <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
-            <PreviewBox previewKey={`char_${i}`} prompt={`${c.name}, ${c.description}, ${c.role}, portrait, comic book character`} label={c.name?.toUpperCase() || `CHARACTER ${i+1}`} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "10px", alignItems: "start" }}>
+                <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`)} variant="secondary"
+                    style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[`char_${i}`] ? 0.6 : 1 }}>
+                    {loading[`char_${i}`] ? "⟳ GENERATING..." : previews[`char_${i}`] ? "↺ REGENERATE" : "🖼 PREVIEW"}
+                </Btn>
+                <div>
+                    {previews[`char_${i}`]
+                    ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                    : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                    }
+                </div>
+            </div>
           </div>
         ))}
         <div onClick={() => setData(d => ({ ...d, characters: [...d.characters, { name: "", description: "", traits: "", role: "hero" }] }))}
