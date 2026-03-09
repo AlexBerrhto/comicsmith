@@ -1389,8 +1389,8 @@ export default function ComicSmith() {
           </div>
           {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} onOldStory={() => setStep("old-story")} />}
           {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
-            ctx.updateScene(story.scene);
-            ctx.updateConfig(story.config);
+            if (story.scene) ctx.updateScene(story.scene);
+            if (story.config) ctx.updateConfig(story.config);
             story.characters?.forEach(c => ctx.addCharacter(c));
             ctx.initPanels(story.config?.panelsPerPage || 4);
             setStep("panels");
