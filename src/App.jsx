@@ -1463,7 +1463,7 @@ export default function ComicSmith() {
   const ctx = useContextAgent();
   const creditSystem = useCreditSystem(ctx.user?.username);
   const translator = useTranslatorAgent();
-  const img = useImageAgent(translator, credits, puterMode, currentStoryId);
+  const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
 
