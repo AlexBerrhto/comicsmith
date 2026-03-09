@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/llm.js": { "maxDuration": 30 },
-    "api/image.js": { "maxDuration": 60 }
+    "api/generate.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }

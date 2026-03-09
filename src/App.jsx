@@ -311,7 +311,7 @@ function useImageAgent(translatorAgent, creditSystem, puterMode) {
 
   // ── Backend A: generateViaHuggingFace.js real image generation ─────────────────────────────
   const generateViaHuggingFace = async (prompt, isPortrait) => {
-    const res = await fetch("/api/image", {
+    const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
