@@ -302,12 +302,18 @@ function useImageAgent(translatorAgent, creditSystem, puterMode) {
 
   // ── Backend A: Puter.js real image generation ─────────────────────────────
   const generateViaPuter = async (prompt) => {
-    const result = await window.puter.ai.txt2img(prompt);
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Image generation timed out")), 30000)
+    );
+    const result = await Promise.race([
+        window.puter.ai.txt2img(prompt),
+        timeout
+    ]);
     if (result && result.src) return result.src;
     if (typeof result === "string") return result;
     if (result && result.url) return result.url;
     return null;
-  };
+    };
 
   // ── Backend B: Claude SVG generation (sandbox fallback) ───────────────────
   const extractSvg = (raw) => {
