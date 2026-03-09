@@ -686,7 +686,17 @@ function LoginScreen({ onLogin, puterMode }) {
             Portrait = {CREDITS.PORTRAIT} cr · Panel image = {CREDITS.PANEL} cr
           </div>
         )}
-        {error && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "8px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px" }}>⚠️ {error}</div>}
+        {error && (
+            <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "10px 12px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px", lineHeight: 1.6 }}>
+                ⚠️ {error}
+                {error.includes("REGISTER") && (
+                <span onClick={() => { setTab("register"); setError(""); }}
+                    style={{ display: "block", marginTop: "6px", color: C.blue, cursor: "pointer", textDecoration: "underline" }}>
+                    → Switch to Register now
+                </span>
+                )}
+            </div>
+            )}
         <Btn onClick={handleSubmit} disabled={loading} style={{ width: "100%" }}>
           {loading ? "⟳ PLEASE WAIT..." : tab === "login" ? "▶ ENTER THE STUDIO" : "✦ CREATE ACCOUNT"}
         </Btn>
