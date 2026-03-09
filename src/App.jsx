@@ -732,15 +732,13 @@ function StoryChoiceScreen({ onNewStory, onOldStory }) {
 
         <Card style={{ textAlign: "center", background: "#111", border: `4px solid ${C.gold}`, cursor: "pointer" }} onClick={onOldStory}>
           <div style={{ fontSize: "52px", marginBottom: "12px" }}>📖</div>
-          <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: "#555", letterSpacing: "3px" }}>OLD STORY</div>
-          <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: "#444", marginTop: "8px", lineHeight: 1.6 }}>
+          <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: C.gold, letterSpacing: "3px" }}>OLD STORY</div>
+          <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: C.lightGray, marginTop: "8px", lineHeight: 1.6 }}>
             Resume a previously saved comic.<br/>Your characters and scenes will be restored.
           </div>
-          <div style={{ marginTop: "20px", fontFamily: FONTS.ui, fontSize: "11px", color: "#444", letterSpacing: "2px" }}>
             <div style={{ marginTop: "20px" }}>
-                <Btn variant="secondary">CONTINUE ▶</Btn>
+                  <Btn variant="secondary" onClick={onOldStory}>CONTINUE ▶</Btn>
             </div>
-          </div>
         </Card>
       </div>
     </div>
