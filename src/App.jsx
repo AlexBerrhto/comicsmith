@@ -1389,11 +1389,13 @@ export default function ComicSmith() {
           </div>
           {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} onOldStory={() => setStep("old-story")} />}
           {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
-            if (story.scene) ctx.updateScene(story.scene);
-            if (story.config) ctx.updateConfig(story.config);
-            story.characters?.forEach(c => ctx.addCharacter(c));
-            ctx.initPanels(story.config?.panelsPerPage || 4);
-            setStep("panels");
+           console.log("Story selected:", story);
+           if (story.scene) ctx.updateScene(story.scene);
+           if (story.config) ctx.updateConfig(story.config);
+           story.characters?.forEach(c => ctx.addCharacter(c));
+           ctx.initPanels(story.config?.panelsPerPage || 4);
+           console.log("Setting step to panels");
+           setStep("panels");
           }} />}
           {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data) => {
