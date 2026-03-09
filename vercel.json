@@ -5,9 +5,5 @@
   "functions": {
     "api/llm.js": { "maxDuration": 30 },
     "api/image.js": { "maxDuration": 60 }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1.js" },
-    { "source": "/((?!api).*)", "destination": "/index.html" }
-  ]
+  }
 }
