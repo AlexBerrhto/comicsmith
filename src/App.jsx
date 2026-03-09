@@ -713,7 +713,7 @@ function LoginScreen({ onLogin, puterMode }) {
 // ─────────────────────────────────────────────
 // SCREEN 2.1: STORY CHOICE
 // ─────────────────────────────────────────────
-function StoryChoiceScreen({ onNewStory }) {
+function StoryChoiceScreen({ onNewStory, onOldStory }) {
   return (
     <div>
       <StepHeader step={1} total={5} title="YOUR STORY" subtitle="Start fresh or continue where you left off." />
