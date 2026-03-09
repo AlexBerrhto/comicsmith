@@ -720,7 +720,7 @@ function StoryChoiceScreen({ onNewStory }) {
             Describe your scene in your own words.<br/>AI will extract characters & setting automatically.
           </div>
           <div style={{ marginTop: "20px" }}>
-            <Btn variant="gold">START CREATING ▶</Btn>
+           <Btn variant="gold" onClick={onNewStory}>START CREATING ▶</Btn>
           </div>
         </Card>
 
