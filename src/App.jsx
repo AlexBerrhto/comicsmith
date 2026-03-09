@@ -296,7 +296,7 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
 // ─────────────────────────────────────────────
 // AGENT 5 — ILLUSTRATOR AGENT (Vector Cache)
 // ─────────────────────────────────────────────
-function useIllustratorAgent() {
+function createIllustratorAgent() {
   const getEmbedding = async (text) => {
     const res = await fetch("/api/embed", {
       method: "POST",
@@ -364,7 +364,7 @@ function useIllustratorAgent() {
 // Dual-mode: Puter.js (real deployment) OR Claude SVG (sandbox fallback)
 // ─────────────────────────────────────────────
 function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null) {
-  const illustrator = useIllustratorAgent();
+  const illustrator = createIllustratorAgent();
   const characterSheets = useRef({});
   const [panelImages, setPanelImages] = useState([]);
   const [generating, setGenerating] = useState(false);
