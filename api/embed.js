@@ -9,7 +9,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/v1/feature-extraction",
+      "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2",,
       {
         method: "POST",
         headers: {
@@ -26,8 +26,7 @@ export default async function handler(req, res) {
         }
 
     const data = await response.json();
-    // Returns array of embeddings — take first
-    const embedding = Array.isArray(data[0]) ? data[0] : data;
+    const embedding = Array.isArray(data) ? data.flat() : data;
     return res.status(200).json({ embedding });
 
   } catch (err) {
