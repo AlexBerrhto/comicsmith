@@ -3,7 +3,8 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { userMsg, systemMsg } = req.body;
+  const { userMsg, systemMsg, system } = req.body;
+  const sysMsg = systemMsg || system;
   if (!userMsg) return res.status(400).json({ error: "userMsg is required" });
 
   const apiKey = process.env.GROQ_API_KEY;
@@ -11,7 +12,7 @@ export default async function handler(req, res) {
 
   try {
     const messages = [];
-    if (systemMsg) messages.push({ role: "system", content: systemMsg });
+    if (sysMsg) messages.push({ role: "system", content: sysMsg });
     messages.push({ role: "user", content: userMsg });
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
