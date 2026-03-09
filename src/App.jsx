@@ -839,6 +839,22 @@ If something is unclear, make a reasonable creative guess. Always return all fie
 // ─────────────────────────────────────────────
 function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
   const [data, setData] = useState(extracted);
+  const [previews, setPreviews] = useState({}); // key: "bg" | "char_0" | "char_1"
+  const [loading, setLoading] = useState({});
+
+  const generatePreview = async (key, prompt) => {
+    setLoading(l => ({ ...l, [key]: true }));
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: `${prompt}, comic book illustration, bold ink outlines, flat colors, NOT photographic`, width: 512, height: 512 }),
+      });
+      const d = await res.json();
+      if (d.image) setPreviews(p => ({ ...p, [key]: d.image }));
+    } catch {}
+    setLoading(l => ({ ...l, [key]: false }));
+  };
 
   const updateChar = (i, field, val) => {
     const chars = [...data.characters];
@@ -849,6 +865,21 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
   const removeChar = (i) => {
     setData(d => ({ ...d, characters: d.characters.filter((_, idx) => idx !== i) }));
   };
+
+  const PreviewBox = ({ previewKey, prompt, label }) => (
+    <div style={{ marginTop: "10px" }}>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+        <Btn onClick={() => generatePreview(previewKey, prompt)} variant="secondary"
+          style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[previewKey] ? 0.6 : 1 }}>
+          {loading[previewKey] ? "⟳ GENERATING..." : previews[previewKey] ? "↺ REGENERATE" : `🖼 PREVIEW ${label}`}
+        </Btn>
+      </div>
+      {previews[previewKey] && (
+        <img src={previews[previewKey]} alt={label}
+          style={{ width: "100%", maxHeight: "200px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+      )}
+    </div>
+  );
 
   return (
     <div>
@@ -872,9 +903,17 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       </div>
 
       <Card style={{ marginBottom: "16px" }}>
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
+        <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
+          rows={3} placeholder="Describe the background environment..."
+          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+        <PreviewBox previewKey="bg" prompt={`${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle`} label="BACKGROUND" />
+      </Card>
+
+      <Card style={{ marginBottom: "16px" }}>
         <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "12px" }}>👥 CHARACTERS FOUND</div>
         {data.characters.map((c, i) => (
-          <div key={i} style={{ background: "#F9F5E8", border: `2px solid ${C.lightGray}`, padding: "12px", marginBottom: "10px" }}>
+          <div key={i} style={{ background: "#F9F5E8", border: `2px solid ${C.ink}`, padding: "12px", marginBottom: "10px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
               <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>{c.name || `Character ${i+1}`}</div>
               <span onClick={() => removeChar(i)} style={{ cursor: "pointer", color: C.danger, fontFamily: FONTS.ui, fontSize: "11px" }}>✕ REMOVE</span>
@@ -891,19 +930,13 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
             <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
+            <PreviewBox previewKey={`char_${i}`} prompt={`${c.name}, ${c.description}, ${c.role}, portrait, comic book character`} label={c.name?.toUpperCase() || `CHARACTER ${i+1}`} />
           </div>
         ))}
         <div onClick={() => setData(d => ({ ...d, characters: [...d.characters, { name: "", description: "", traits: "", role: "hero" }] }))}
-          style={{ border: `2px dashed ${C.lightGray}`, padding: "10px", textAlign: "center", cursor: "pointer", fontFamily: FONTS.display, fontSize: "14px", color: C.gray, letterSpacing: "2px" }}>
+          style={{ border: `2px dashed ${C.ink}`, padding: "10px", textAlign: "center", cursor: "pointer", fontFamily: FONTS.display, fontSize: "14px", color: C.gray, letterSpacing: "2px" }}>
           + ADD CHARACTER
         </div>
-      </Card>
-
-      <Card style={{ marginBottom: "24px" }}>
-        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
-        <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
-          rows={3} placeholder="Describe the background environment..."
-          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
       </Card>
 
       <div style={{ display: "flex", justifyContent: "space-between" }}>
