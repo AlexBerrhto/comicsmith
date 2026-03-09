@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/llm.js": { "maxDuration": 30 },
-    "api/generate.js": { "maxDuration": 60 }
+    "api/generate.js": { "maxDuration": 60 },
+    "api/embed.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
