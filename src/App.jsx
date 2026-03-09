@@ -142,6 +142,7 @@ function createIllustratorAgent() {
   return { getOrGenerateImage, getEmbedding, storeEmbedding };
 }
 
+// ─────────────────────────────────────────────
 // PUTER.JS LOADER
 // Tries to load Puter.js; falls back gracefully if sandbox blocks it
 // ─────────────────────────────────────────────
@@ -364,6 +365,9 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
 // Dual-mode: Puter.js (real deployment) OR Claude SVG (sandbox fallback)
 // ─────────────────────────────────────────────
 function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null) {
+  const illustratorRef = useRef(null);
+  if (!illustratorRef.current) illustratorRef.current = createIllustratorAgent();
+  const illustrator = illustratorRef.current;
   const characterSheets = useRef({});
   const [panelImages, setPanelImages] = useState([]);
   const [generating, setGenerating] = useState(false);
@@ -1543,7 +1547,7 @@ export default function ComicSmith() {
            setStep("panels");
           }} />}
           {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
-          {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data) => {
+          {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc });
             data.characters.forEach(c => ctx.addCharacter(c));
