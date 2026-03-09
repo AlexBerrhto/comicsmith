@@ -1254,12 +1254,40 @@ export default function ComicSmith() {
   const translator = useTranslatorAgent();
   const img = useImageAgent(translator, creditSystem, puterMode);
   const [extractedScene, setExtractedScene] = useState(null);
+  const [currentStoryId, setCurrentStoryId] = useState(null);
 
   const handleGenerate = async (title) => {
     setComicTitle(title);
     setStep("output");
-    await img.generateComic(ctx.scene, ctx.characters, ctx.config, ctx.panelDescriptions, title);
-  };
+    const panels = await img.generateComic(ctx.scene, ctx.characters, ctx.config, ctx.panelDescriptions, title);
+    
+    // Update story with final panels + title
+    await updateStory(currentStoryId, {
+        title,
+        panels,
+        status: "complete",
+    });
+    };
+
+  const saveStory = async (storyData) => {
+    if (!ctx.user?.id) return null;
+    const { data, error } = await supabase.from("stories").insert({
+        user_id: ctx.user.id,
+        title: storyData.title || "Untitled",
+        passage: storyData.passage,
+        scene: storyData.scene,
+        characters: storyData.characters,
+        config: storyData.config,
+        status: "draft",
+    }).select().single();
+    if (error) console.error("Save story error:", error);
+    return data;
+    };
+
+  const updateStory = async (storyId, updates) => {
+    if (!storyId) return;
+    await supabase.from("stories").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", storyId);
+    };
 
   return (
     <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
@@ -1296,7 +1324,22 @@ export default function ComicSmith() {
           </div>
           {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} />}
           {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
-          {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={(data) => { ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain }); ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc }); data.characters.forEach(c => ctx.addCharacter(c)); setStep("scene"); }} />}
+          {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data) => {
+            ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
+            ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc });
+            data.characters.forEach(c => ctx.addCharacter(c));
+            
+            // Save draft to Supabase
+            const story = await saveStory({
+                passage: extractedScene?.passage,
+                scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
+                characters: data.characters,
+                config: ctx.config,
+            });
+            if (story) setCurrentStoryId(story.id);
+            
+            setStep("scene");
+            }} />}
           {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("panels")} />}
           {step === "characters" && <CharacterScreen scene={ctx.scene} characters={ctx.characters} onAdd={ctx.addCharacter} onUpdate={ctx.updateCharacter} onNext={() => setStep("config")} imageAgent={img} creditSystem={creditSystem} />}
           {step === "config"     && <ConfigScreen config={ctx.config} onUpdate={ctx.updateConfig} onNext={() => setStep("panels")} onBack={() => setStep("characters")} initPanels={ctx.initPanels} creditSystem={creditSystem} />}
