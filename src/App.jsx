@@ -622,7 +622,15 @@ function LoginScreen({ onLogin, puterMode }) {
           email: form.email,
           password: form.password,
         });
-        if (signInError) { setError(signInError.message); return; }
+        if (signInError) {
+            const msg = signInError.message.toLowerCase();
+            if (msg.includes("invalid") || msg.includes("not found")) {
+                setError("No account found. New here? Click REGISTER above to create your free 7-day trial.");
+            } else {
+                setError(signInError.message);
+            }
+            return;
+            }
 
         const { data: profile } = await supabase
           .from("profiles").select("*").eq("id", data.user.id).single();
