@@ -1340,7 +1340,7 @@ export default function ComicSmith() {
             
             setStep("scene");
             }} />}
-          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("panels")} />}
+          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => { ctx.initPanels(ctx.config.panelsPerPage); setStep("panels"); }} />}
           {step === "characters" && <CharacterScreen scene={ctx.scene} characters={ctx.characters} onAdd={ctx.addCharacter} onUpdate={ctx.updateCharacter} onNext={() => setStep("config")} imageAgent={img} creditSystem={creditSystem} />}
           {step === "config"     && <ConfigScreen config={ctx.config} onUpdate={ctx.updateConfig} onNext={() => setStep("panels")} onBack={() => setStep("characters")} initPanels={ctx.initPanels} creditSystem={creditSystem} />}
           {step === "panels"     && <PanelWriterScreen config={ctx.config} characters={ctx.characters} scene={ctx.scene} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} onGenerate={handleGenerate} onBack={() => setStep("config")} creditSystem={creditSystem} />}
