@@ -1,4 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ─────────────────────────────────────────────
+// SUPABASE CLIENT
+// Replace the two values below with yours from
+// Supabase → Project Settings → API
+// ─────────────────────────────────────────────
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || "";
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON || "";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // ─────────────────────────────────────────────
 // DESIGN TOKENS
@@ -571,14 +581,70 @@ function CreditBadge({ credits, cost, label }) {
 // ─────────────────────────────────────────────
 function LoginScreen({ onLogin, puterMode }) {
   const [tab, setTab] = useState("login");
-  const [form, setForm] = useState({ username: "", email: "", password: "", genre: "action" });
+  const [form, setForm] = useState({ username: "", email: "", password: "" });
   const [error, setError] = useState("");
-  const genres = ["Action", "Horror", "Romance", "Sci-Fi", "Fantasy", "Mystery"];
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    if (!form.username.trim() || !form.password.trim()) { setError("Username and password required."); return; }
-    if (tab === "register" && !form.email.includes("@")) { setError("Valid email required."); return; }
-    onLogin({ username: form.username, email: form.email || `${form.username}@comic.ai`, genre: form.genre });
+  const handleSubmit = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      if (tab === "register") {
+        if (!form.username.trim()) { setError("Username required."); return; }
+        if (!form.email.includes("@")) { setError("Valid email required."); return; }
+        if (form.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: form.email,
+          password: form.password,
+          options: { data: { username: form.username } },
+        });
+        if (signUpError) { setError(signUpError.message); return; }
+
+        // Wait briefly for trigger to create profile
+        await new Promise(r => setTimeout(r, 800));
+        const { data: profile } = await supabase
+          .from("profiles").select("*").eq("id", data.user.id).single();
+
+        onLogin({
+          id: data.user.id,
+          username: form.username,
+          email: form.email,
+          trial_ends_at: profile?.trial_ends_at,
+          credits: profile?.credits ?? 20,
+          trialExpired: false,
+        });
+      } else {
+        if (!form.email.includes("@")) { setError("Valid email required."); return; }
+        if (!form.password) { setError("Password required."); return; }
+
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: form.email,
+          password: form.password,
+        });
+        if (signInError) { setError(signInError.message); return; }
+
+        const { data: profile } = await supabase
+          .from("profiles").select("*").eq("id", data.user.id).single();
+
+        const trialExpired = profile?.trial_ends_at
+          ? new Date() > new Date(profile.trial_ends_at)
+          : false;
+
+        onLogin({
+          id: data.user.id,
+          username: profile?.username || form.email,
+          email: data.user.email,
+          trial_ends_at: profile?.trial_ends_at,
+          credits: profile?.credits ?? 20,
+          trialExpired,
+        });
+      }
+    } catch (err) {
+      setError(err.message || "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -603,27 +669,19 @@ function LoginScreen({ onLogin, puterMode }) {
             </button>
           ))}
         </div>
-        <Input label="USERNAME" value={form.username} onChange={v => setForm(f => ({ ...f, username: v }))} placeholder="your_handle" />
-        {tab === "register" && <Input label="EMAIL" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="you@example.com" type="email" />}
+        {tab === "register" && <Input label="USERNAME" value={form.username} onChange={v => setForm(f => ({ ...f, username: v }))} placeholder="your_handle" />}
+        <Input label="EMAIL" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="you@example.com" type="email" />
         <Input label="PASSWORD" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} placeholder="••••••••" type="password" />
         {tab === "register" && (
-          <div style={{ marginBottom: "20px" }}>
-            <label style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, display: "block", marginBottom: "8px" }}>FAVORITE GENRE</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              {genres.map(g => (
-                <div key={g} onClick={() => setForm(f => ({ ...f, genre: g.toLowerCase() }))} style={{ padding: "5px 12px", background: form.genre === g.toLowerCase() ? C.ink : C.lightGray, color: form.genre === g.toLowerCase() ? C.gold : C.ink, border: `2px solid ${C.ink}`, fontFamily: FONTS.ui, fontSize: "12px", cursor: "pointer" }}>{g}</div>
-              ))}
-            </div>
-          </div>
-        )}
-        {tab === "register" && (
           <div style={{ background: "#E8F5E9", border: `2px solid ${C.success}`, padding: "10px 12px", marginBottom: "16px", fontFamily: FONTS.ui, fontSize: "12px", color: C.success, lineHeight: 1.6 }}>
-            🎁 New accounts receive <strong>{CREDITS.STARTING} free credits</strong><br/>
+            🎁 New accounts get <strong>7 days free</strong> + <strong>{CREDITS.STARTING} credits</strong><br/>
             Portrait = {CREDITS.PORTRAIT} cr · Panel image = {CREDITS.PANEL} cr
           </div>
         )}
         {error && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "8px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px" }}>⚠️ {error}</div>}
-        <Btn onClick={handleSubmit} style={{ width: "100%" }}>{tab === "login" ? "▶ ENTER THE STUDIO" : "✦ CREATE ACCOUNT"}</Btn>
+        <Btn onClick={handleSubmit} disabled={loading} style={{ width: "100%" }}>
+          {loading ? "⟳ PLEASE WAIT..." : tab === "login" ? "▶ ENTER THE STUDIO" : "✦ CREATE ACCOUNT"}
+        </Btn>
       </Card>
     </div>
   );
@@ -999,7 +1057,24 @@ export default function ComicSmith() {
     <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
 
-      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep("scene"); }} puterMode={puterMode} />}
+      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep(u.trialExpired ? "expired" : "scene"); }} puterMode={puterMode} />}
+
+      {step === "expired" && (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.ink }}>
+          <div style={{ textAlign: "center", padding: "40px", maxWidth: "480px" }}>
+            <div style={{ fontSize: "64px", marginBottom: "16px" }}>⏰</div>
+            <div style={{ fontFamily: FONTS.display, fontSize: "48px", color: C.gold, letterSpacing: "4px", marginBottom: "8px" }}>TRIAL ENDED</div>
+            <div style={{ fontFamily: FONTS.body, fontSize: "16px", color: C.paper, lineHeight: 1.8, marginBottom: "32px" }}>
+              Your 7-day free trial has expired.<br/>Check back soon for updates!
+            </div>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "12px", color: "#666", letterSpacing: "2px" }}>— COMICSMITH BETA —</div>
+            <div onClick={() => { supabase.auth.signOut(); setStep("login"); }}
+              style={{ marginTop: "32px", fontFamily: FONTS.ui, fontSize: "11px", color: "#444", cursor: "pointer", textDecoration: "underline" }}>
+              Sign out
+            </div>
+          </div>
+        </div>
+      )}
 
       {step !== "login" && (
         <div style={{ maxWidth: "920px", margin: "0 auto" }}>
