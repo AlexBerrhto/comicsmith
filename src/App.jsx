@@ -75,7 +75,74 @@ const ART_OPTIONS = [
   { id: "retro",      label: "📺 Retro Sci-Fi",    desc: "1960s pulp, muted palette" },
   { id: "graffiti",   label: "🖌️ Graffiti",        desc: "Bold outlines, vibrant spray colors" },
 ];
+// ─────────────────────────────────────────────
+// AGENT 5 — ILLUSTRATOR AGENT (Vector Cache)
+// ─────────────────────────────────────────────
+function createIllustratorAgent() {
+  const getEmbedding = async (text) => {
+    const res = await fetch("/api/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    return data.embedding || null;
+  };
 
+  const findSimilar = async (embedding, threshold = 0.85) => {
+    const { data, error } = await supabase.rpc("match_scene_embeddings", {
+      query_embedding: embedding,
+      match_threshold: threshold,
+      match_count: 1,
+    });
+    if (error || !data?.length) return null;
+    return data[0];
+  };
+
+  const storeEmbedding = async (storyId, type, description, embedding, imageData, metadata = {}) => {
+    const { error } = await supabase.from("scene_embeddings").insert({
+      story_id: storyId,
+      type,
+      description,
+      embedding,
+      image_data: imageData,
+      metadata,
+    });
+    if (error) console.error("Failed to store embedding:", error);
+  };
+
+  const getOrGenerateImage = async (storyId, type, description, generateFn, metadata = {}) => {
+    try {
+      // 1. Get embedding for this description
+      const embedding = await getEmbedding(description);
+      if (!embedding) return await generateFn();
+
+      // 2. Check vector DB for similar image
+      const match = await findSimilar(embedding);
+      if (match) {
+        console.log(`Cache hit! Reusing image (similarity: ${match.similarity.toFixed(2)})`);
+        return { type: "url", value: match.image_data, cached: true };
+      }
+
+      // 3. No match — generate new image
+      const result = await generateFn();
+
+      // 4. Store in vector DB for future reuse
+      if (result?.value) {
+        await storeEmbedding(storyId, type, description, embedding, result.value, metadata);
+      }
+
+      return result;
+    } catch (err) {
+      console.error("Illustrator agent error:", err);
+      return await generateFn();
+    }
+  };
+
+  return { getOrGenerateImage, getEmbedding, storeEmbedding };
+}
+
+const illustrator = createIllustratorAgent();
 // ─────────────────────────────────────────────
 // PUTER.JS LOADER
 // Tries to load Puter.js; falls back gracefully if sandbox blocks it
@@ -293,78 +360,12 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
 
   return { translating, translatePortrait, translatePanel, translationLog };
 }
-// ─────────────────────────────────────────────
-// AGENT 5 — ILLUSTRATOR AGENT (Vector Cache)
-// ─────────────────────────────────────────────
-function createIllustratorAgent() {
-  const getEmbedding = async (text) => {
-    const res = await fetch("/api/embed", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    const data = await res.json();
-    return data.embedding || null;
-  };
 
-  const findSimilar = async (embedding, threshold = 0.85) => {
-    const { data, error } = await supabase.rpc("match_scene_embeddings", {
-      query_embedding: embedding,
-      match_threshold: threshold,
-      match_count: 1,
-    });
-    if (error || !data?.length) return null;
-    return data[0];
-  };
-
-  const storeEmbedding = async (storyId, type, description, embedding, imageData, metadata = {}) => {
-    const { error } = await supabase.from("scene_embeddings").insert({
-      story_id: storyId,
-      type,
-      description,
-      embedding,
-      image_data: imageData,
-      metadata,
-    });
-    if (error) console.error("Failed to store embedding:", error);
-  };
-
-  const getOrGenerateImage = async (storyId, type, description, generateFn, metadata = {}) => {
-    try {
-      // 1. Get embedding for this description
-      const embedding = await getEmbedding(description);
-      if (!embedding) return await generateFn();
-
-      // 2. Check vector DB for similar image
-      const match = await findSimilar(embedding);
-      if (match) {
-        console.log(`Cache hit! Reusing image (similarity: ${match.similarity.toFixed(2)})`);
-        return { type: "url", value: match.image_data, cached: true };
-      }
-
-      // 3. No match — generate new image
-      const result = await generateFn();
-
-      // 4. Store in vector DB for future reuse
-      if (result?.value) {
-        await storeEmbedding(storyId, type, description, embedding, result.value, metadata);
-      }
-
-      return result;
-    } catch (err) {
-      console.error("Illustrator agent error:", err);
-      return await generateFn();
-    }
-  };
-
-  return { getOrGenerateImage, getEmbedding, storeEmbedding };
-}
 // ─────────────────────────────────────────────
 // AGENT 2: IMAGE AGENT
 // Dual-mode: Puter.js (real deployment) OR Claude SVG (sandbox fallback)
 // ─────────────────────────────────────────────
 function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null) {
-  const illustrator = createIllustratorAgent();
   const characterSheets = useRef({});
   const [panelImages, setPanelImages] = useState([]);
   const [generating, setGenerating] = useState(false);
