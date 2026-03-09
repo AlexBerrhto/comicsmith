@@ -6,7 +6,9 @@
     "api/llm.js": { "maxDuration": 30 },
     "api/generate.js": { "maxDuration": 60 }
   },
-  "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/llm", "dest": "/api/llm.js" },
+    { "src": "/api/generate", "dest": "/api/generate.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
