@@ -730,14 +730,16 @@ function StoryChoiceScreen({ onNewStory }) {
           </div>
         </Card>
 
-        <Card style={{ textAlign: "center", background: "#1a1a1a", border: `4px solid #333`, opacity: 0.5 }}>
+        <Card style={{ textAlign: "center", background: "#111", border: `4px solid ${C.gold}`, cursor: "pointer" }} onClick={onOldStory}>
           <div style={{ fontSize: "52px", marginBottom: "12px" }}>📖</div>
           <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: "#555", letterSpacing: "3px" }}>OLD STORY</div>
           <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: "#444", marginTop: "8px", lineHeight: 1.6 }}>
             Resume a previously saved comic.<br/>Your characters and scenes will be restored.
           </div>
           <div style={{ marginTop: "20px", fontFamily: FONTS.ui, fontSize: "11px", color: "#444", letterSpacing: "2px" }}>
-            — COMING SOON —
+            <div style={{ marginTop: "20px" }}>
+                <Btn variant="secondary">CONTINUE ▶</Btn>
+            </div>
           </div>
         </Card>
       </div>
@@ -902,6 +904,65 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
           LOOKS GOOD ▶
         </Btn>
       </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────
+// SCREEN 2: OldStoryScreen
+// ─────────────────────────────────────────────
+function OldStoryScreen({ user, onSelect, onBack }) {
+  const [stories, setStories] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("stories")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false });
+      if (!error) setStories(data || []);
+      setLoading(false);
+    })();
+  }, [user.id]);
+
+  return (
+    <div>
+      <StepHeader step={1} total={5} title="YOUR STORIES" subtitle="Pick a story to continue." />
+      {loading && (
+        <div style={{ textAlign: "center", fontFamily: FONTS.display, fontSize: "24px", color: C.gold, padding: "40px" }}>
+          ⟳ LOADING...
+        </div>
+      )}
+      {!loading && stories.length === 0 && (
+        <Card style={{ textAlign: "center", padding: "40px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "12px" }}>📭</div>
+          <div style={{ fontFamily: FONTS.display, fontSize: "24px", color: C.ink }}>NO STORIES YET</div>
+          <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: C.gray, marginTop: "8px" }}>Create your first story to see it here.</div>
+        </Card>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+        {stories.map(story => (
+          <Card key={story.id} style={{ cursor: "pointer", padding: "20px" }} onClick={() => onSelect(story)}>
+            <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.ink, marginBottom: "6px" }}>{story.title}</div>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginBottom: "10px" }}>
+              {story.scene?.terrain} · {story.scene?.timeOfDay} · {story.scene?.artStyle}
+            </div>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginBottom: "10px" }}>
+              👥 {story.characters?.length || 0} characters · {story.panels?.length || 0} panels
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: story.status === "complete" ? C.success : C.warn }}>
+                {story.status === "complete" ? "✓ COMPLETE" : "◌ DRAFT"}
+              </div>
+              <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: "#888" }}>
+                {new Date(story.updated_at).toLocaleDateString()}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
     </div>
   );
 }
@@ -1328,7 +1389,14 @@ export default function ComicSmith() {
               <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>👤 {ctx.user?.username}</div>
             </div>
           </div>
-          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} />}
+          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} onOldStory={() => setStep("old-story")} />}
+          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
+            ctx.updateScene(story.scene);
+            ctx.updateConfig(story.config);
+            story.characters?.forEach(c => ctx.addCharacter(c));
+            ctx.initPanels(story.config?.panelsPerPage || 4);
+            setStep("panels");
+          }} />}
           {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
