@@ -142,8 +142,6 @@ function createIllustratorAgent() {
   return { getOrGenerateImage, getEmbedding, storeEmbedding };
 }
 
-const illustrator = createIllustratorAgent();
-// ─────────────────────────────────────────────
 // PUTER.JS LOADER
 // Tries to load Puter.js; falls back gracefully if sandbox blocks it
 // ─────────────────────────────────────────────
@@ -1045,7 +1043,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
 
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
-        <Btn onClick={() => onConfirm(data)} variant="gold" disabled={data.characters.length === 0}>
+        <Btn onClick={() => onConfirm(data, previews)} variant="gold" disabled={data.characters.length === 0}>
           LOOKS GOOD ▶
         </Btn>
       </div>
@@ -1209,7 +1207,7 @@ function CharacterScreen({ scene, characters, onAdd, onUpdate, onNext, imageAgen
                 {previewing ? "⟳ GENERATING..." : `👁 PREVIEW (${CREDITS.PORTRAIT}cr)`}
               </Btn>
               <Btn onClick={saveCharacter} disabled={!form.name || !previewResult} variant="success">✓ SAVE</Btn>
-              <Btn onClick={() => { setMode("list"); setEditIdx(null); setPreviewUrl(null); }} variant="ghost" small>✕</Btn>
+              <Btn onClick={() => { setMode("list"); setEditIdx(null); setPreviewResult(null); }} variant="ghost" small>✕</Btn>
             </div>
           </Card>
 
@@ -1464,9 +1462,9 @@ export default function ComicSmith() {
   const ctx = useContextAgent();
   const creditSystem = useCreditSystem(ctx.user?.username);
   const translator = useTranslatorAgent();
-  const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
+  const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
   const handleGenerate = async (title) => {
     setComicTitle(title);
@@ -1556,6 +1554,7 @@ export default function ComicSmith() {
                 scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
                 characters: data.characters,
                 config: ctx.config,
+                previews: previews || {}, 
             });
             if (story) setCurrentStoryId(story.id);
             
