@@ -309,20 +309,21 @@ function useImageAgent(translatorAgent, creditSystem, puterMode) {
   const callClaude = (system, userMsg, maxTokens = 1000) =>
     callLLM(system, userMsg, maxTokens);
 
-  // ── Backend A: Puter.js real image generation ─────────────────────────────
-  const generateViaPuter = async (prompt) => {
-    const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Image generation timed out")), 30000)
-    );
-    const result = await Promise.race([
-        window.puter.ai.txt2img(prompt),
-        timeout
-    ]);
-    if (result && result.src) return result.src;
-    if (typeof result === "string") return result;
-    if (result && result.url) return result.url;
-    return null;
-    };
+  // ── Backend A: generateViaHuggingFace.js real image generation ─────────────────────────────
+  const generateViaHuggingFace = async (prompt, isPortrait) => {
+    const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+        prompt,
+        width: isPortrait ? 512 : 768,
+        height: isPortrait ? 640 : 512,
+        }),
+    });
+    if (!res.ok) throw new Error("Image generation failed");
+    const data = await res.json();
+    return data.image;
+  };
 
   // ── Backend B: Claude SVG generation (sandbox fallback) ───────────────────
   const extractSvg = (raw) => {
@@ -352,14 +353,14 @@ function useImageAgent(translatorAgent, creditSystem, puterMode) {
 
   // ── Unified image generator ───────────────────────────────────────────────
   const generateImage = async (prompt, isPortrait) => {
-    if (puterMode === "puter" && window.puter) {
-      return { type: "url", value: await generateViaPuter(prompt) };
-    } else {
-      const svg = await generateViaSVG(prompt, isPortrait);
-      return { type: "svg", value: svg };
+    try {
+        const url = await generateViaHuggingFace(prompt, isPortrait);
+        return { type: "url", value: url };
+    } catch {
+        const svg = await generateViaSVG(prompt, isPortrait);
+        return { type: "svg", value: svg };
     }
   };
-
   // ── Character portrait ────────────────────────────────────────────────────
   const generateCharacterPortrait = useCallback(async (character, artStyle) => {
     const ok = await creditSystem.deduct(CREDITS.PORTRAIT);
