@@ -704,25 +704,214 @@ function LoginScreen({ onLogin, puterMode }) {
     </div>
   );
 }
+// ─────────────────────────────────────────────
+// SCREEN 2.1: STORY CHOICE
+// ─────────────────────────────────────────────
+function StoryChoiceScreen({ onNewStory }) {
+  return (
+    <div>
+      <StepHeader step={1} total={5} title="YOUR STORY" subtitle="Start fresh or continue where you left off." />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "12px" }}>
+        <Card style={{ textAlign: "center", cursor: "pointer", border: `4px solid ${C.gold}`, background: "#111" }}
+          onClick={onNewStory}>
+          <div style={{ fontSize: "52px", marginBottom: "12px" }}>✨</div>
+          <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: C.gold, letterSpacing: "3px" }}>NEW STORY</div>
+          <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: C.lightGray, marginTop: "8px", lineHeight: 1.6 }}>
+            Describe your scene in your own words.<br/>AI will extract characters & setting automatically.
+          </div>
+          <div style={{ marginTop: "20px" }}>
+            <Btn variant="gold">START CREATING ▶</Btn>
+          </div>
+        </Card>
 
+        <Card style={{ textAlign: "center", background: "#1a1a1a", border: `4px solid #333`, opacity: 0.5 }}>
+          <div style={{ fontSize: "52px", marginBottom: "12px" }}>📖</div>
+          <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: "#555", letterSpacing: "3px" }}>OLD STORY</div>
+          <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: "#444", marginTop: "8px", lineHeight: 1.6 }}>
+            Resume a previously saved comic.<br/>Your characters and scenes will be restored.
+          </div>
+          <div style={{ marginTop: "20px", fontFamily: FONTS.ui, fontSize: "11px", color: "#444", letterSpacing: "2px" }}>
+            — COMING SOON —
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────
+// SCREEN 2.2: ScenePassageScreen
+// ─────────────────────────────────────────────
+function ScenePassageScreen({ onNext, updateScene, updateConfig, addCharacter }) {
+  const [passage, setPassage] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState("");
+
+  const analyzePassage = async () => {
+    if (passage.trim().length < 20) {
+      setError("Please write a bit more — at least a sentence or two.");
+      return;
+    }
+    setAnalyzing(true);
+    setError("");
+    try {
+      const raw = await callLLM(
+        `You are a comic book scene analyzer. Extract scene details from the user's passage and return ONLY valid JSON, no markdown, no explanation.
+Return this exact structure:
+{
+  "timeOfDay": "dawn|day|dusk|night|storm",
+  "terrain": "city|forest|desert|ocean|space|dungeon|mountain|village",
+  "characters": [{ "name": "string", "description": "string", "traits": "string", "role": "hero|villain|sidekick|mentor|neutral" }],
+  "backgroundDesc": "string",
+  "hasBackground": true
+}
+If something is unclear, make a reasonable creative guess. Always return all fields.`,
+        `Scene passage: ${passage}`,
+        800
+      );
+      const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      onNext({ passage, extracted: data });
+    } catch (err) {
+      setError("Could not analyze the scene. Try adding more detail.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div>
+      <StepHeader step={2} total={5} title="DESCRIBE YOUR SCENE" subtitle="Write your scene in plain English. AI will do the rest." />
+      <Card style={{ marginBottom: "20px" }}>
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "10px", letterSpacing: "1px" }}>
+          ✍️ YOUR SCENE PASSAGE
+        </div>
+        <textarea
+          value={passage}
+          onChange={e => setPassage(e.target.value)}
+          placeholder={`Example: "It's a stormy night in Neo Tokyo. Commander Aria, a silver-haired warrior in red armor, faces off against the villain Krell on top of a rain-soaked skyscraper. Lightning illuminates their battle. Aria looks fierce but tired — she's been fighting all night."`}
+          rows={8}
+          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "12px", fontFamily: FONTS.body, fontSize: "14px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.7 }}
+        />
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginTop: "8px" }}>
+          Include: setting, time of day, characters (names + appearance), mood, action
+        </div>
+      </Card>
+
+      {error && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "10px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "16px" }}>⚠️ {error}</div>}
+
+      {analyzing && (
+        <Card style={{ background: "#111", border: `3px solid ${C.gold}`, marginBottom: "16px", textAlign: "center", padding: "20px" }}>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+          <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gold, animation: "pulse 1s infinite", letterSpacing: "3px" }}>
+            🔍 ANALYSING YOUR SCENE...
+          </div>
+          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#666", marginTop: "8px" }}>
+            Extracting characters, setting, background...
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn onClick={analyzePassage} disabled={!passage.trim() || analyzing} variant="gold">
+          {analyzing ? "⟳ ANALYSING..." : "🔍 ANALYSE SCENE ▶"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────
+// SCREEN 2.3: SceneConfirmScreen
+// ─────────────────────────────────────────────
+function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
+  const [data, setData] = useState(extracted);
+
+  const updateChar = (i, field, val) => {
+    const chars = [...data.characters];
+    chars[i] = { ...chars[i], [field]: val };
+    setData(d => ({ ...d, characters: chars }));
+  };
+
+  const removeChar = (i) => {
+    setData(d => ({ ...d, characters: d.characters.filter((_, idx) => idx !== i) }));
+  };
+
+  return (
+    <div>
+      <StepHeader step={3} total={5} title="CONFIRM SCENE" subtitle="AI extracted this from your passage. Edit anything that's off." />
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+        <Card>
+          <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "12px" }}>⏰ TIME OF DAY</div>
+          <select value={data.timeOfDay} onChange={e => setData(d => ({ ...d, timeOfDay: e.target.value }))}
+            style={{ width: "100%", padding: "10px", fontFamily: FONTS.body, fontSize: "14px", border: `3px solid ${C.ink}`, background: "#FFFDF5", color: C.ink }}>
+            {["dawn","day","dusk","night","storm"].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Card>
+        <Card>
+          <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "12px" }}>🗺️ TERRAIN</div>
+          <select value={data.terrain} onChange={e => setData(d => ({ ...d, terrain: e.target.value }))}
+            style={{ width: "100%", padding: "10px", fontFamily: FONTS.body, fontSize: "14px", border: `3px solid ${C.ink}`, background: "#FFFDF5", color: C.ink }}>
+            {["city","forest","desert","ocean","space","dungeon","mountain","village"].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Card>
+      </div>
+
+      <Card style={{ marginBottom: "16px" }}>
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "12px" }}>👥 CHARACTERS FOUND</div>
+        {data.characters.map((c, i) => (
+          <div key={i} style={{ background: "#F9F5E8", border: `2px solid ${C.lightGray}`, padding: "12px", marginBottom: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>{c.name || `Character ${i+1}`}</div>
+              <span onClick={() => removeChar(i)} style={{ cursor: "pointer", color: C.danger, fontFamily: FONTS.ui, fontSize: "11px" }}>✕ REMOVE</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <input value={c.name} onChange={e => updateChar(i, "name", e.target.value)} placeholder="Name"
+                style={{ padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink }} />
+              <select value={c.role} onChange={e => updateChar(i, "role", e.target.value)}
+                style={{ padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink }}>
+                {["hero","villain","sidekick","mentor","neutral"].map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <input value={c.description} onChange={e => updateChar(i, "description", e.target.value)} placeholder="Appearance"
+              style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
+            <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
+              style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
+          </div>
+        ))}
+        <div onClick={() => setData(d => ({ ...d, characters: [...d.characters, { name: "", description: "", traits: "", role: "hero" }] }))}
+          style={{ border: `2px dashed ${C.lightGray}`, padding: "10px", textAlign: "center", cursor: "pointer", fontFamily: FONTS.display, fontSize: "14px", color: C.gray, letterSpacing: "2px" }}>
+          + ADD CHARACTER
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: "24px" }}>
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
+        <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
+          rows={3} placeholder="Describe the background environment..."
+          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+      </Card>
+
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
+        <Btn onClick={() => onConfirm(data)} variant="gold" disabled={data.characters.length === 0}>
+          LOOKS GOOD ▶
+        </Btn>
+      </div>
+    </div>
+  );
+}
 // ─────────────────────────────────────────────
 // SCREEN 2: SCENE SETUP
 // ─────────────────────────────────────────────
 function SceneScreen({ user, scene, onUpdate, onNext }) {
-  const ready = scene.timeOfDay && scene.terrain && scene.artStyle;
+  const ready = scene.artStyle;
   return (
     <div>
-      <StepHeader step={1} total={5} title="SET THE SCENE" subtitle={`Welcome, ${user.username}. Build your world first.`} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "20px" }}>
-        <Card><h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>⏰ TIME OF DAY</h3><OptionGrid options={TIME_OPTIONS} selected={scene.timeOfDay} onSelect={v => onUpdate({ timeOfDay: v })} cols={1} /></Card>
-        <Card><h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🗺️ TERRAIN</h3><OptionGrid options={TERRAIN_OPTIONS} selected={scene.terrain} onSelect={v => onUpdate({ terrain: v })} cols={2} /></Card>
-      </div>
+      <StepHeader step={4} total={5} title="CHOOSE ART STYLE" subtitle="Pick the visual style for your comic." />
       <Card style={{ marginBottom: "24px" }}>
-        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🎨 ART STYLE</h3>
         <OptionGrid options={ART_OPTIONS} selected={scene.artStyle} onSelect={v => onUpdate({ artStyle: v })} cols={3} />
       </Card>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: CHARACTERS ▶</Btn>
+        <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: WRITE PANELS ▶</Btn>
       </div>
     </div>
   );
@@ -1064,6 +1253,7 @@ export default function ComicSmith() {
   const creditSystem = useCreditSystem(ctx.user?.username);
   const translator = useTranslatorAgent();
   const img = useImageAgent(translator, creditSystem, puterMode);
+  const [extractedScene, setExtractedScene] = useState(null);
 
   const handleGenerate = async (title) => {
     setComicTitle(title);
@@ -1075,7 +1265,7 @@ export default function ComicSmith() {
     <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
 
-      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep(u.trialExpired ? "expired" : "scene"); }} puterMode={puterMode} />}
+      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep(u.trialExpired ? "expired" : "story-choice"); }} puterMode={puterMode} />}
 
       {step === "expired" && (
         <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.ink }}>
@@ -1104,8 +1294,10 @@ export default function ComicSmith() {
               <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>👤 {ctx.user?.username}</div>
             </div>
           </div>
-
-          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("characters")} />}
+          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} />}
+          {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
+          {step === "confirm"      && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={(data) => { ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain }); ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc }); data.characters.forEach(c => ctx.addCharacter(c)); setStep("scene"); }} />}
+          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("panels")} />}
           {step === "characters" && <CharacterScreen scene={ctx.scene} characters={ctx.characters} onAdd={ctx.addCharacter} onUpdate={ctx.updateCharacter} onNext={() => setStep("config")} imageAgent={img} creditSystem={creditSystem} />}
           {step === "config"     && <ConfigScreen config={ctx.config} onUpdate={ctx.updateConfig} onNext={() => setStep("panels")} onBack={() => setStep("characters")} initPanels={ctx.initPanels} creditSystem={creditSystem} />}
           {step === "panels"     && <PanelWriterScreen config={ctx.config} characters={ctx.characters} scene={ctx.scene} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} onGenerate={handleGenerate} onBack={() => setStep("config")} creditSystem={creditSystem} />}
