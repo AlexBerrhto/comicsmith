@@ -9,6 +9,9 @@
   "routes": [
     { "src": "/api/llm", "dest": "/api/llm.js" },
     { "src": "/api/generate", "dest": "/api/generate.js" },
+    { "src": "/assets/(.*)", "dest": "/assets/$1" },
+    { "src": "/(.*)\\.js", "dest": "/$1.js" },
+    { "src": "/(.*)\\.css", "dest": "/$1.css" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
