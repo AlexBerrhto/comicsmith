@@ -21,9 +21,9 @@ export default async function handler(req, res) {
     );
 
     if (!response.ok) {
-      const err = await response.text();
-      return res.status(200).json({ error: err });
-    }
+        const err = await response.text();
+        return res.status(200).json({ error: err, hf_status: response.status });
+        }
 
     const data = await response.json();
     // Returns array of embeddings — take first
