@@ -9,20 +9,18 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+      "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell/v1/images/generations",
       {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-        inputs: prompt,
-        parameters: {
-            num_inference_steps: 4,
-            width,
-            height,
-        }
+       body: JSON.stringify({
+        prompt,
+        num_inference_steps: 4,
+        width,
+        height,
         }),
       }
     );
@@ -33,9 +31,10 @@ export default async function handler(req, res) {
     }
 
     // Returns image as binary — convert to base64
-    const buffer = await response.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    return res.status(200).json({ image: `data:image/jpeg;base64,${base64}` });
+   const data = await response.json();
+   const base64 = data?.data?.[0]?.b64_json || data?.images?.[0];
+   if (!base64) return res.status(500).json({ error: "No image returned" });
+   return res.status(200).json({ image: `data:image/png;base64,${base64}` });
 
   } catch (err) {
     return res.status(500).json({ error: err.message });
