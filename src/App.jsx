@@ -213,13 +213,12 @@ Convert character descriptions into precise, vivid prompts for AI image generati
 Output ONLY the optimized prompt — no explanation, no quotes, no preamble.
 Always include: ${artKeywords}
 Format: [subject], [appearance details], [pose/expression], [lighting], [style keywords], [quality boosters]
-Quality boosters to append: highly detailed, sharp focus, professional illustration, 8k resolution`;
+Quality boosters to append: highly detailed, sharp focus, professional comic illustration, 2D art, NOT photographic, NOT realistic, ink outlines, flat cel shading`;
 
     try {
       const prompt = await callClaude(system,
         `Character: ${character.name}. Appearance: ${character.description}. Personality: ${character.traits}. Role: ${character.role}.
-Create a portrait prompt showing head and shoulders, front-facing, neutral/characteristic expression.`
-      );
+    Create a portrait prompt showing head and shoulders. Based on the character's traits and role, choose a characteristic expression that reveals their personality — not neutral. A villain should look menacing, a hero determined, a sidekick eager. Include specific eye expression, jaw set, and micro-expression details.`      );
       translationLog.current.push({ type: "portrait", input: character.name, output: prompt });
       setTranslating(false);
       return prompt;
@@ -268,17 +267,27 @@ Output ONLY the optimized prompt — no explanation, no quotes.
 Context: ${artKeywords}, ${timeAtmosphere}, ${terrainDesc}
 Characters in this world: ${charList}
 ${bgNote}
-Include: camera angle/framing, character poses/expressions, environmental details, lighting, mood
-Append: ${artKeywords}, highly detailed comic panel, professional illustration, 8k`;
+Analyze the action and emotion in the panel, then choose the most cinematic camera angle:
+- CLOSE-UP: for intense emotion, dialogue, reaction shots
+- MEDIUM SHOT: for action between 2 characters, confrontation
+- WIDE SHOT: for establishing scene, epic moments, large environments
+- LOW ANGLE: for powerful/threatening characters, dominance
+- HIGH ANGLE: for vulnerability, overwhelmed characters
+- DUTCH ANGLE: for tension, unease, villain moments
+- OVER SHOULDER: for conversation, stalking, pursuit
+
+Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
+Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT realistic, NOT stock photo, hand drawn, ink outlines, flat colors`;
 
     try {
       const prompt = await callClaude(system,
-        `Panel ${panelIdx + 1} action: ${panelDesc}`
+        `Panel ${panelIdx + 1} action: ${panelDesc}
+        Identify the dominant emotion in this panel and choose the best camera angle to capture it.`
       );
       translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
       return prompt;
     } catch {
-      return `${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed`;
+      return `${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
     }
   }, []);
 
