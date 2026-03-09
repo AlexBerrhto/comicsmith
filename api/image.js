@@ -26,8 +26,9 @@ export default async function handler(req, res) {
     );
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(response.status).json({ error: err.error || "HuggingFace error" });
+        const errText = await response.text();
+        console.error("HF error:", response.status, errText);
+        return res.status(response.status).json({ error: errText });
     }
 
     // Returns image as binary — convert to base64
