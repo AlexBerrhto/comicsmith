@@ -496,8 +496,8 @@ function Btn({ children, onClick, variant = "primary", disabled, small, style = 
   );
 }
 
-function Card({ children, style = {} }) {
-  return <div style={{ background: C.paper, border: `4px solid ${C.ink}`, padding: "24px", boxShadow: `6px 6px 0 ${C.ink}`, ...style }}>{children}</div>;
+function Card({ children, style = {}, onClick }) {
+  return <div onClick={onClick} style={{ background: C.paper, border: `4px solid ${C.ink}`, padding: "24px", boxShadow: `6px 6px 0 ${C.ink}`, ...style }}>{children}</div>;
 }
 
 function Input({ label, value, onChange, placeholder, type = "text", multiline }) {
