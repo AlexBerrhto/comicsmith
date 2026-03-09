@@ -16,28 +16,29 @@ export default async function handler(req, res) {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-       body: JSON.stringify({
-        prompt,
-        num_inference_steps: 4,
-        width,
-        height,
+        body: JSON.stringify({
+          prompt,
+          num_inference_steps: 4,
+          width,
+          height,
+          response_format: "b64_json",
         }),
       }
     );
 
+    const responseText = await response.text();
+    console.log("HF status:", response.status, responseText.slice(0, 300));
+
     if (!response.ok) {
-        const errText = await response.text();
-        console.error("HF error:", response.status, errText);
-        return res.status(response.status).json({ error: errText });
+      return res.status(200).json({ error: responseText, hf_status: response.status });
     }
 
-    // Returns image as binary — convert to base64
-   const data = await response.json();
-   const base64 = data?.data?.[0]?.b64_json || data?.images?.[0];
-   if (!base64) return res.status(500).json({ error: "No image returned" });
-   return res.status(200).json({ image: `data:image/png;base64,${base64}` });
+    const data = JSON.parse(responseText);
+    const base64 = data?.data?.[0]?.b64_json;
+    if (!base64) return res.status(200).json({ error: "No image in response", raw: data });
+    return res.status(200).json({ image: `data:image/png;base64,${base64}` });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(200).json({ error: err.message });
   }
 }
