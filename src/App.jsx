@@ -1,0 +1,1024 @@
+import { useState, useCallback, useRef, useEffect } from "react";
+
+// ─────────────────────────────────────────────
+// DESIGN TOKENS
+// ─────────────────────────────────────────────
+const C = {
+  ink: "#0D0D0D", paper: "#F5EDD6", red: "#C0392B",
+  gold: "#D4A017", blue: "#1A3A5C", gray: "#4A4A4A",
+  lightGray: "#E8E0CC", white: "#FEFEFE", success: "#2D6A4F",
+  warn: "#E67E22", danger: "#C0392B",
+};
+const FONTS = {
+  display: "'Bangers','Impact',cursive",
+  body: "'Special Elite','Courier New',monospace",
+  ui: "'Courier New',monospace",
+};
+
+// Credit costs
+const CREDITS = { PORTRAIT: 2, PANEL: 3, STARTING: 20 };
+
+// ─────────────────────────────────────────────
+// SHARED LLM CALLER
+// Routes through /api/llm proxy (Gemini backend)
+// ─────────────────────────────────────────────
+async function callLLM(system, userMsg, maxTokens = 1000) {
+  const res = await fetch("/api/llm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system, userMsg, maxTokens }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `LLM proxy error ${res.status}`);
+  }
+  const data = await res.json();
+  return data.text || "";
+}
+
+
+// ─────────────────────────────────────────────
+// SCENE OPTIONS
+// ─────────────────────────────────────────────
+const TIME_OPTIONS = [
+  { id: "dawn",  label: "🌅 Dawn",    desc: "Soft orange haze, long shadows" },
+  { id: "day",   label: "☀️ Daytime", desc: "Bright, vivid, high contrast" },
+  { id: "dusk",  label: "🌇 Dusk",    desc: "Golden hour, dramatic silhouettes" },
+  { id: "night", label: "🌙 Night",   desc: "Deep blues, spotlight sources" },
+  { id: "storm", label: "⛈️ Storm",   desc: "Ominous clouds, harsh rain" },
+];
+const TERRAIN_OPTIONS = [
+  { id: "city",     label: "🏙️ City",     desc: "Skyscrapers, streets, neon" },
+  { id: "forest",   label: "🌲 Forest",   desc: "Dense trees, dappled light" },
+  { id: "desert",   label: "🏜️ Desert",   desc: "Sand dunes, cracked earth" },
+  { id: "ocean",    label: "🌊 Ocean",    desc: "Waves, cliffs, seashore" },
+  { id: "space",    label: "🚀 Space",    desc: "Stars, nebulae, planets" },
+  { id: "dungeon",  label: "🏚️ Dungeon",  desc: "Torchlit stone halls" },
+  { id: "mountain", label: "⛰️ Mountain", desc: "Peaks, snow, rocky paths" },
+  { id: "village",  label: "🏘️ Village",  desc: "Cottages, market squares" },
+];
+const ART_OPTIONS = [
+  { id: "classic",    label: "📰 Classic Comics", desc: "Bold outlines, Ben-Day dots, primary colors" },
+  { id: "manga",      label: "⛩️ Manga",          desc: "Fine lines, speed lines, high contrast" },
+  { id: "noir",       label: "🎭 Noir",            desc: "High contrast B&W, deep shadows" },
+  { id: "watercolor", label: "🎨 Watercolor",      desc: "Soft edges, blended pastels" },
+  { id: "retro",      label: "📺 Retro Sci-Fi",    desc: "1960s pulp, muted palette" },
+  { id: "graffiti",   label: "🖌️ Graffiti",        desc: "Bold outlines, vibrant spray colors" },
+];
+
+// ─────────────────────────────────────────────
+// PUTER.JS LOADER
+// Tries to load Puter.js; falls back gracefully if sandbox blocks it
+// ─────────────────────────────────────────────
+function usePuter() {
+  const [mode, setMode] = useState("loading"); // "loading" | "puter" | "svg"
+
+  useEffect(() => {
+    // Already available (e.g. deployed page)
+    if (window.puter) { setMode("puter"); return; }
+
+    let settled = false;
+    const settle = (m) => { if (!settled) { settled = true; setMode(m); } };
+
+    // Timeout: if puter doesn't appear in 5s, switch to SVG mode
+    const timeout = setTimeout(() => {
+      console.warn("Puter.js not available — using SVG fallback mode");
+      settle("svg");
+    }, 5000);
+
+    const pollForPuter = (attempts = 0) => {
+      if (window.puter) { clearTimeout(timeout); settle("puter"); return; }
+      if (attempts > 60) return; // let timeout handle it
+      setTimeout(() => pollForPuter(attempts + 1), 80);
+    };
+
+    const existing = document.querySelector('script[src="https://js.puter.com/v2/"]');
+    if (existing) { pollForPuter(); return; }
+
+    const s = document.createElement("script");
+    s.src = "https://js.puter.com/v2/";
+    s.async = true;
+    s.onload  = () => pollForPuter();
+    s.onerror = () => { clearTimeout(timeout); settle("svg"); };
+    document.head.appendChild(s);
+
+    return () => clearTimeout(timeout);
+  }, []);
+
+  return mode; // "loading" | "puter" | "svg"
+}
+
+// ─────────────────────────────────────────────
+// CREDIT SYSTEM
+// ─────────────────────────────────────────────
+function useCreditSystem(username) {
+  const [credits, setCredits] = useState(null);
+  const storageKey = username ? `credits:${username}` : null;
+
+  // Load credits from storage on mount / username change
+  useEffect(() => {
+    if (!storageKey) return;
+    (async () => {
+      try {
+        const result = await window.storage.get(storageKey);
+        setCredits(result ? parseInt(result.value) : CREDITS.STARTING);
+      } catch {
+        setCredits(CREDITS.STARTING);
+      }
+    })();
+  }, [storageKey]);
+
+  const saveCredits = useCallback(async (amount) => {
+    if (!storageKey) return;
+    try { await window.storage.set(storageKey, String(amount)); } catch {}
+  }, [storageKey]);
+
+  const deduct = useCallback(async (cost) => {
+    const current = credits ?? CREDITS.STARTING;
+    if (current < cost) return false;
+    const next = current - cost;
+    setCredits(next);
+    await saveCredits(next);
+    return true;
+  }, [credits, saveCredits]);
+
+  const canAfford = useCallback((cost) => (credits ?? 0) >= cost, [credits]);
+
+  const topUp = useCallback(async (amount = 10) => {
+    const next = (credits ?? 0) + amount;
+    setCredits(next);
+    await saveCredits(next);
+  }, [credits, saveCredits]);
+
+  return { credits: credits ?? 0, deduct, canAfford, topUp };
+}
+
+// ─────────────────────────────────────────────
+// AGENT 1: CONTEXT AGENT
+// ─────────────────────────────────────────────
+function useContextAgent() {
+  const [user, setUser] = useState(null);
+  const [scene, setScene] = useState({ timeOfDay: null, terrain: null, artStyle: null });
+  const [characters, setCharacters] = useState([]);
+  const [config, setConfig] = useState({ panelsPerPage: 4, hasBackground: false, backgroundDesc: "" });
+  const [panelDescriptions, setPanelDescriptions] = useState([]);
+
+  const login = useCallback((u) => setUser(u), []);
+  const updateScene = useCallback((u) => setScene(s => ({ ...s, ...u })), []);
+  const addCharacter = useCallback((c) => setCharacters(cs => [...cs, c]), []);
+  const updateCharacter = useCallback((i, u) => setCharacters(cs => cs.map((c, idx) => idx === i ? { ...c, ...u } : c)), []);
+  const updateConfig = useCallback((u) => setConfig(c => ({ ...c, ...u })), []);
+  const updatePanelDesc = useCallback((i, t) => setPanelDescriptions(pd => { const a = [...pd]; a[i] = t; return a; }), []);
+  const initPanels = useCallback((n) => setPanelDescriptions(Array(n).fill("")), []);
+
+  return { user, scene, characters, config, panelDescriptions, login, updateScene, addCharacter, updateCharacter, updateConfig, updatePanelDesc, initPanels };
+}
+
+// ─────────────────────────────────────────────
+// AGENT 3: TRANSLATOR AGENT
+// Converts raw user prompts → Puter-optimized image prompts
+// ─────────────────────────────────────────────
+function useTranslatorAgent() {
+  const [translating, setTranslating] = useState(false);
+  const translationLog = useRef([]);
+
+  // Uses shared callLLM proxy
+  const callClaude = (system, userMsg, maxTokens = 300) =>
+    callLLM(system, userMsg, maxTokens);
+
+  // Translate a character description → portrait generation prompt
+  const translatePortrait = useCallback(async (character, artStyle) => {
+    setTranslating(true);
+    const artKeywords = {
+      classic: "classic American comic book art style, bold ink outlines, flat cel shading, primary colors, Ben-Day dot halftone texture, Jack Kirby inspired",
+      manga:   "manga art style, clean precise linework, screen tone shading, high contrast black and white, expressive eyes, Akira Toriyama inspired",
+      noir:    "noir comic art style, stark black and white, heavy shadow blocking, dramatic chiaroscuro, Frank Miller Sin City style",
+      watercolor: "watercolor comic illustration, soft wet edges, pastel color washes, loose brushwork, Moebius inspired",
+      retro:   "1960s retro sci-fi pulp comic art, muted earthy palette, cross-hatch shading, vintage printing aesthetic",
+      graffiti: "graffiti street art comic style, thick outlines, electric neon colors, spray paint texture, bold graphic shapes",
+    }[artStyle] || "comic book illustration, bold outlines, flat colors";
+
+    const system = `You are an expert image generation prompt engineer specializing in comic book art. 
+Convert character descriptions into precise, vivid prompts for AI image generation.
+Output ONLY the optimized prompt — no explanation, no quotes, no preamble.
+Always include: ${artKeywords}
+Format: [subject], [appearance details], [pose/expression], [lighting], [style keywords], [quality boosters]
+Quality boosters to append: highly detailed, sharp focus, professional illustration, 8k resolution`;
+
+    try {
+      const prompt = await callClaude(system,
+        `Character: ${character.name}. Appearance: ${character.description}. Personality: ${character.traits}. Role: ${character.role}.
+Create a portrait prompt showing head and shoulders, front-facing, neutral/characteristic expression.`
+      );
+      translationLog.current.push({ type: "portrait", input: character.name, output: prompt });
+      setTranslating(false);
+      return prompt;
+    } catch {
+      setTranslating(false);
+      return `${character.name}, ${character.description}, comic book portrait, ${artKeywords}, highly detailed`;
+    }
+  }, []);
+
+  // Translate a panel description → scene generation prompt
+  const translatePanel = useCallback(async (panelDesc, panelIdx, scene, characters, config) => {
+    const artKeywords = {
+      classic: "classic American comic book panel, bold ink outlines, flat cel shading, primary color palette, Ben-Day dots",
+      manga:   "manga panel, clean linework, screen tone shading, dynamic composition, speed lines",
+      noir:    "noir comic panel, black and white, deep shadows, dramatic lighting, cinematic",
+      watercolor: "watercolor comic panel, soft brushwork, loose painterly style, pastel tones",
+      retro:   "retro sci-fi comic panel, 1960s pulp aesthetic, muted tones, vintage cross-hatching",
+      graffiti: "street art comic panel, thick outlines, vivid neon spray colors, bold graphic",
+    }[scene.artStyle] || "comic book panel";
+
+    const timeAtmosphere = {
+      dawn: "dawn lighting, warm orange-pink sky, long soft shadows",
+      day: "bright daylight, clear sky, high contrast sharp shadows",
+      dusk: "golden hour dusk, warm orange glow, dramatic long shadows",
+      night: "night scene, dark sky, artificial light sources, deep shadows",
+      storm: "stormy atmosphere, dark ominous clouds, rain, dramatic tension",
+    }[scene.timeOfDay] || "natural lighting";
+
+    const terrainDesc = {
+      city: "urban cityscape, skyscrapers, concrete streets, urban environment",
+      forest: "dense forest, tall trees, dappled light through canopy",
+      desert: "arid desert, sand dunes, cracked earth, harsh sun",
+      ocean: "ocean setting, waves, coastal cliffs, sea horizon",
+      space: "outer space, stars, nebula colors, zero gravity environment",
+      dungeon: "stone dungeon, torchlit walls, medieval underground",
+      mountain: "mountain terrain, rocky peaks, snow, high altitude",
+      village: "quaint village, cobblestone streets, cottages, market square",
+    }[scene.terrain] || "generic environment";
+
+    const charList = characters.map(c => `${c.name} (${c.description})`).join(", ");
+    const bgNote = config.hasBackground ? `Busy background: ${config.backgroundDesc}.` : "Clean focused background.";
+
+    const system = `You are an expert image generation prompt engineer for comic book panels.
+Convert panel action descriptions into precise visual prompts for AI image generation.
+Output ONLY the optimized prompt — no explanation, no quotes.
+Context: ${artKeywords}, ${timeAtmosphere}, ${terrainDesc}
+Characters in this world: ${charList}
+${bgNote}
+Include: camera angle/framing, character poses/expressions, environmental details, lighting, mood
+Append: ${artKeywords}, highly detailed comic panel, professional illustration, 8k`;
+
+    try {
+      const prompt = await callClaude(system,
+        `Panel ${panelIdx + 1} action: ${panelDesc}`
+      );
+      translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
+      return prompt;
+    } catch {
+      return `${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed`;
+    }
+  }, []);
+
+  return { translating, translatePortrait, translatePanel, translationLog };
+}
+
+// ─────────────────────────────────────────────
+// AGENT 2: IMAGE AGENT
+// Dual-mode: Puter.js (real deployment) OR Claude SVG (sandbox fallback)
+// ─────────────────────────────────────────────
+function useImageAgent(translatorAgent, creditSystem, puterMode) {
+  const characterSheets = useRef({});
+  const [panelImages, setPanelImages] = useState([]);
+  const [generating, setGenerating] = useState(false);
+  const [genLog, setGenLog] = useState([]);
+  const log = useCallback((msg) => setGenLog(l => [...l, msg]), []);
+
+  // Uses shared callLLM proxy
+  const callClaude = (system, userMsg, maxTokens = 1000) =>
+    callLLM(system, userMsg, maxTokens);
+
+  // ── Backend A: Puter.js real image generation ─────────────────────────────
+  const generateViaPuter = async (prompt) => {
+    const result = await window.puter.ai.txt2img(prompt);
+    if (result && result.src) return result.src;
+    if (typeof result === "string") return result;
+    if (result && result.url) return result.url;
+    return null;
+  };
+
+  // ── Backend B: Claude SVG generation (sandbox fallback) ───────────────────
+  const extractSvg = (raw) => {
+    const m = raw.match(/<svg[\s\S]*<\/svg>/i);
+    return m ? m[0] : null;
+  };
+
+  const generateViaSVG = async (prompt, isPortrait) => {
+    const dims = isPortrait
+      ? `viewBox="0 0 200 240" width="100%" height="240"`
+      : `viewBox="0 0 300 190" width="100%" height="190"`;
+    const subject = isPortrait
+      ? "a character portrait (head + shoulders). Include: background fill, head circle, hair, eyes (two filled circles), nose, mouth arc, neck, shirt collar."
+      : "a comic book scene panel. Include: sky/background fill, ground or floor, at least one character figure, environment details.";
+
+    const system = `You are an SVG comic artist. Output ONLY a raw SVG element — no markdown, no explanation.
+- Start with <svg ${dims} xmlns="http://www.w3.org/2000/svg">
+- End with </svg>
+- Draw ${subject}
+- Comic art: bold stroke="#111111" stroke-width="2.5" on all shapes, flat fills, clear silhouettes
+- Fill entire canvas background first
+- NO <text> or <script> elements`;
+
+    const raw = await callClaude(system, `Draw: ${prompt}`, 900);
+    return extractSvg(raw);
+  };
+
+  // ── Unified image generator ───────────────────────────────────────────────
+  const generateImage = async (prompt, isPortrait) => {
+    if (puterMode === "puter" && window.puter) {
+      return { type: "url", value: await generateViaPuter(prompt) };
+    } else {
+      const svg = await generateViaSVG(prompt, isPortrait);
+      return { type: "svg", value: svg };
+    }
+  };
+
+  // ── Character portrait ────────────────────────────────────────────────────
+  const generateCharacterPortrait = useCallback(async (character, artStyle) => {
+    const ok = await creditSystem.deduct(CREDITS.PORTRAIT);
+    if (!ok) throw new Error(`Not enough credits. Portrait costs ${CREDITS.PORTRAIT} credits.`);
+
+    const backend = puterMode === "puter" ? "Puter.js 🎨" : "Claude SVG ✏️";
+    log(`🔤 Translator: optimizing prompt for "${character.name}"...`);
+    const optimizedPrompt = await translatorAgent.translatePortrait(character, artStyle);
+    log(`${backend} generating portrait for "${character.name}"...`);
+
+    const result = await generateImage(optimizedPrompt, true);
+    if (result.value) {
+      characterSheets.current[character.name] = {
+        ...result, description: character.description,
+        traits: character.traits, optimizedPrompt,
+      };
+      log(`✅ Portrait done for "${character.name}" (-${CREDITS.PORTRAIT}cr)`);
+    }
+    return result;
+  }, [translatorAgent, creditSystem, log, puterMode]);
+
+  // ── Full comic generation ─────────────────────────────────────────────────
+  const generateComic = useCallback(async (scene, characters, config, panelDescriptions, storyTitle) => {
+    setGenerating(true);
+    setGenLog([]);
+    setPanelImages([]);
+
+    const totalCost = panelDescriptions.length * CREDITS.PANEL;
+    if (!creditSystem.canAfford(totalCost)) {
+      log(`❌ Need ${totalCost} credits for ${panelDescriptions.length} panels. You have ${creditSystem.credits}.`);
+      setGenerating(false);
+      return null;
+    }
+
+    try {
+      // Step A: Dialogue
+      log("📝 Writing dialogue...");
+      const dialogueRaw = await callClaude(
+        "You are a comic book writer. Output ONLY valid JSON, no markdown.",
+        `Comic: "${storyTitle}". Style: ${scene.artStyle}. Setting: ${scene.terrain}, ${scene.timeOfDay}. Characters: ${characters.map(c => c.name).join(", ")}.
+Panels: ${panelDescriptions.map((d, i) => `Panel ${i+1}: ${d}`).join(" | ")}
+Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name or NARRATOR", "text": "...", "type": "speech|thought|shout|narration" } ] } ] }`,
+        1200
+      );
+      let dialogueData;
+      try { dialogueData = JSON.parse(dialogueRaw.replace(/```json|```/g, "").trim()); }
+      catch { dialogueData = { panels: panelDescriptions.map(() => ({ sfx: null, dialogue: [] })) }; }
+      log("✅ Dialogue written");
+
+      // Step B: Translate prompts (Agent 3)
+      log(`🔤 Translator Agent: optimizing ${panelDescriptions.length} prompts...`);
+      const translatedPrompts = await Promise.all(
+        panelDescriptions.map((desc, i) =>
+          translatorAgent.translatePanel(desc, i, scene, characters, config)
+        )
+      );
+      log("✅ Prompts optimized");
+
+      // Step C: Generate images (parallel)
+      const backend = puterMode === "puter" ? "Puter.js 🎨" : "Claude SVG ✏️";
+      log(`${backend} generating ${panelDescriptions.length} panel images...`);
+      const results = await Promise.all(
+        translatedPrompts.map(async (prompt, i) => {
+          try {
+            await creditSystem.deduct(CREDITS.PANEL);
+            const result = await generateImage(prompt, false);
+            log(`✅ Panel ${i+1} done (-${CREDITS.PANEL}cr)`);
+            return result;
+          } catch (err) {
+            log(`⚠️ Panel ${i+1} failed: ${err.message}`);
+            return { type: "svg", value: null };
+          }
+        })
+      );
+
+      const panels = panelDescriptions.map((desc, i) => ({
+        description: desc,
+        imageResult: results[i],
+        optimizedPrompt: translatedPrompts[i],
+        sfx: dialogueData.panels?.[i]?.sfx || null,
+        dialogue: dialogueData.panels?.[i]?.dialogue || [],
+      }));
+
+      setPanelImages(panels);
+      log("🎉 Comic complete!");
+      return panels;
+    } finally {
+      setGenerating(false);
+    }
+  }, [translatorAgent, creditSystem, log, puterMode]);
+
+  return { characterSheets, panelImages, generating, genLog, generateCharacterPortrait, generateComic };
+}
+
+// ─────────────────────────────────────────────
+// UNIVERSAL IMAGE RENDERER
+// Handles both Puter URL images and SVG fallback
+// ─────────────────────────────────────────────
+function ComicImage({ result, alt, style = {} }) {
+  if (!result || !result.value) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#e0d8c0", ...style }}>
+        <span style={{ fontSize: "24px" }}>⚠️</span>
+        <span style={{ fontFamily: "'Courier New',monospace", fontSize: "10px", color: "#777", marginTop: "4px" }}>No image</span>
+      </div>
+    );
+  }
+  if (result.type === "url") {
+    return <img src={result.value} alt={alt} style={{ display: "block", objectFit: "cover", ...style }} />;
+  }
+  // SVG mode — inline render
+  return (
+    <div style={{ lineHeight: 0, overflow: "hidden", ...style }}
+      dangerouslySetInnerHTML={{ __html: result.value }} />
+  );
+}
+
+// ─────────────────────────────────────────────
+// UI COMPONENTS
+// ─────────────────────────────────────────────
+function Btn({ children, onClick, variant = "primary", disabled, small, style = {} }) {
+  const v = {
+    primary:   { bg: C.red,     color: C.white,  border: `3px solid ${C.ink}`, shadow: `3px 3px 0 ${C.ink}` },
+    secondary: { bg: C.paper,   color: C.ink,    border: `3px solid ${C.ink}`, shadow: `3px 3px 0 ${C.ink}` },
+    ghost:     { bg: "transparent", color: C.paper, border: `2px solid ${C.paper}`, shadow: "none" },
+    gold:      { bg: C.gold,    color: C.ink,    border: `3px solid ${C.ink}`, shadow: `3px 3px 0 ${C.ink}` },
+    success:   { bg: C.success, color: C.white,  border: `3px solid ${C.ink}`, shadow: `3px 3px 0 ${C.ink}` },
+    danger:    { bg: C.danger,  color: C.white,  border: `3px solid ${C.ink}`, shadow: `3px 3px 0 ${C.ink}` },
+  }[variant] || {};
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      background: disabled ? "#888" : v.bg, color: disabled ? "#ccc" : v.color,
+      border: v.border, boxShadow: disabled ? "none" : v.shadow,
+      padding: small ? "6px 14px" : "10px 22px",
+      fontFamily: FONTS.display, fontSize: small ? "14px" : "18px",
+      letterSpacing: "2px", cursor: disabled ? "not-allowed" : "pointer",
+      transform: disabled ? "translate(2px,2px)" : "none",
+      transition: "all 0.1s", textTransform: "uppercase", ...style,
+    }}
+    onMouseEnter={e => !disabled && (e.currentTarget.style.transform = "translate(-1px,-1px)")}
+    onMouseLeave={e => !disabled && (e.currentTarget.style.transform = "none")}
+    >{children}</button>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return <div style={{ background: C.paper, border: `4px solid ${C.ink}`, padding: "24px", boxShadow: `6px 6px 0 ${C.ink}`, ...style }}>{children}</div>;
+}
+
+function Input({ label, value, onChange, placeholder, type = "text", multiline }) {
+  const shared = { width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px 14px", fontFamily: FONTS.body, fontSize: "15px", color: C.ink, outline: "none", boxSizing: "border-box", resize: multiline ? "vertical" : "none" };
+  return (
+    <div style={{ marginBottom: "16px" }}>
+      {label && <label style={{ fontFamily: FONTS.display, fontSize: "16px", letterSpacing: "1px", color: C.paper, display: "block", marginBottom: "6px" }}>{label}</label>}
+      {multiline
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={3} style={shared} />
+        : <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={shared} />
+      }
+    </div>
+  );
+}
+
+function OptionGrid({ options, selected, onSelect, cols = 3 }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: "10px" }}>
+      {options.map(opt => {
+        const sel = selected === opt.id;
+        return (
+          <div key={opt.id} onClick={() => onSelect(opt.id)} style={{
+            background: sel ? C.red : C.paper, border: `3px solid ${sel ? C.red : C.ink}`,
+            padding: "12px 14px", cursor: "pointer",
+            boxShadow: sel ? "inset 2px 2px 0 rgba(0,0,0,0.3)" : `3px 3px 0 ${C.ink}`,
+            transform: sel ? "translate(2px,2px)" : "none", transition: "all 0.15s",
+          }}>
+            <div style={{ fontFamily: FONTS.display, fontSize: "15px", color: sel ? C.white : C.ink, letterSpacing: "1px" }}>{opt.label}</div>
+            {opt.desc && <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: sel ? "#ffcccc" : C.gray, marginTop: "3px" }}>{opt.desc}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StepHeader({ step, total, title, subtitle }) {
+  return (
+    <div style={{ marginBottom: "28px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", flexWrap: "wrap" }}>
+        {Array.from({ length: total }).map((_, i) => (
+          <div key={i} style={{ width: i < step ? "28px" : "10px", height: "10px", background: i < step ? C.red : i === step - 1 ? C.gold : "#555", border: `2px solid ${C.ink}`, transition: "all 0.3s" }} />
+        ))}
+        <span style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px" }}>STEP {step} / {total}</span>
+      </div>
+      <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(26px,4vw,42px)", color: C.paper, margin: "0 0 4px", letterSpacing: "3px", textShadow: `3px 3px 0 ${C.ink}` }}>{title}</h2>
+      {subtitle && <p style={{ fontFamily: FONTS.body, color: C.lightGray, margin: 0, fontSize: "14px" }}>{subtitle}</p>}
+    </div>
+  );
+}
+
+function SpeechBubble({ text, type = "speech" }) {
+  const s = {
+    speech:    { bg: C.white,   border: `3px solid ${C.ink}`, radius: "14px", tail: true },
+    thought:   { bg: C.white,   border: `3px dashed #555`,   radius: "50px", tail: false },
+    shout:     { bg: "#FFE566", border: `4px solid ${C.ink}`, radius: "4px",  tail: true },
+    narration: { bg: "#FFFDE7", border: `3px solid #8B7355`, radius: "4px",  tail: false },
+  }[type] || { bg: C.white, border: `3px solid ${C.ink}`, radius: "14px", tail: true };
+  return (
+    <div style={{ position: "relative", background: s.bg, border: s.border, borderRadius: s.radius, padding: "5px 9px", maxWidth: "92%", margin: "3px auto", fontFamily: FONTS.display, fontSize: "11px", lineHeight: 1.3, color: C.ink, boxShadow: "1px 1px 0 #11111166" }}>
+      {type === "shout" && <span style={{ color: C.red }}>💥 </span>}
+      {text}
+      {s.tail && <div style={{ position: "absolute", bottom: "-11px", left: "14px", fontSize: "13px", color: C.ink, lineHeight: 1 }}>▼</div>}
+    </div>
+  );
+}
+
+// Credit Badge shown in top bar
+function CreditBadge({ credits, cost, label }) {
+  const color = credits <= 3 ? C.danger : credits <= 8 ? C.warn : C.success;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+      <div style={{ background: C.ink, border: `2px solid ${color}`, padding: "5px 12px", fontFamily: FONTS.display, fontSize: "15px", color, letterSpacing: "1px", boxShadow: `0 0 8px ${color}44` }}>
+        ⚡ {credits} CREDITS
+      </div>
+      {cost && (
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>
+          {label}: <span style={{ color: C.gold }}>{cost}cr</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 1: LOGIN
+// ─────────────────────────────────────────────
+function LoginScreen({ onLogin, puterMode }) {
+  const [tab, setTab] = useState("login");
+  const [form, setForm] = useState({ username: "", email: "", password: "", genre: "action" });
+  const [error, setError] = useState("");
+  const genres = ["Action", "Horror", "Romance", "Sci-Fi", "Fantasy", "Mystery"];
+
+  const handleSubmit = () => {
+    if (!form.username.trim() || !form.password.trim()) { setError("Username and password required."); return; }
+    if (tab === "register" && !form.email.includes("@")) { setError("Valid email required."); return; }
+    onLogin({ username: form.username, email: form.email || `${form.username}@comic.ai`, genre: form.genre });
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.ink, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", backgroundImage: `repeating-linear-gradient(0deg,transparent,transparent 39px,#1a1a1a 39px,#1a1a1a 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,#1a1a1a 39px,#1a1a1a 40px)` }}>
+      <div style={{ textAlign: "center", marginBottom: "32px" }}>
+        <div style={{ display: "inline-block", background: C.gold, border: `5px solid ${C.ink}`, padding: "10px 32px", transform: "rotate(-2deg)", boxShadow: `6px 6px 0 ${C.ink}`, marginBottom: "12px" }}>
+          <div style={{ fontFamily: FONTS.display, fontSize: "clamp(36px,6vw,64px)", color: C.red, letterSpacing: "6px", textShadow: `3px 3px 0 ${C.ink}`, transform: "rotate(2deg)" }}>COMICSMITH</div>
+        </div>
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray, letterSpacing: "4px" }}>✦ AI-POWERED COMIC CREATION STUDIO ✦</div>
+        <div style={{ marginTop: "8px", fontFamily: FONTS.ui, fontSize: "11px", letterSpacing: "2px", color: puterMode === "puter" ? C.success : puterMode === "svg" ? C.warn : C.gray }}>
+          {puterMode === "loading" && "○ Detecting image backend..."}
+          {puterMode === "puter"   && "● PUTER.JS READY — real AI images"}
+          {puterMode === "svg"     && "✏️ SVG MODE — preview only (Puter.js unavailable in sandbox)"}
+        </div>
+      </div>
+
+      <Card style={{ width: "100%", maxWidth: "420px" }}>
+        <div style={{ display: "flex", marginBottom: "24px", border: `3px solid ${C.ink}` }}>
+          {["login", "register"].map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{ flex: 1, padding: "10px", background: tab === t ? C.ink : C.paper, color: tab === t ? C.gold : C.ink, fontFamily: FONTS.display, fontSize: "16px", letterSpacing: "2px", border: "none", cursor: "pointer" }}>
+              {t === "login" ? "SIGN IN" : "REGISTER"}
+            </button>
+          ))}
+        </div>
+        <Input label="USERNAME" value={form.username} onChange={v => setForm(f => ({ ...f, username: v }))} placeholder="your_handle" />
+        {tab === "register" && <Input label="EMAIL" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} placeholder="you@example.com" type="email" />}
+        <Input label="PASSWORD" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} placeholder="••••••••" type="password" />
+        {tab === "register" && (
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, display: "block", marginBottom: "8px" }}>FAVORITE GENRE</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {genres.map(g => (
+                <div key={g} onClick={() => setForm(f => ({ ...f, genre: g.toLowerCase() }))} style={{ padding: "5px 12px", background: form.genre === g.toLowerCase() ? C.ink : C.lightGray, color: form.genre === g.toLowerCase() ? C.gold : C.ink, border: `2px solid ${C.ink}`, fontFamily: FONTS.ui, fontSize: "12px", cursor: "pointer" }}>{g}</div>
+              ))}
+            </div>
+          </div>
+        )}
+        {tab === "register" && (
+          <div style={{ background: "#E8F5E9", border: `2px solid ${C.success}`, padding: "10px 12px", marginBottom: "16px", fontFamily: FONTS.ui, fontSize: "12px", color: C.success, lineHeight: 1.6 }}>
+            🎁 New accounts receive <strong>{CREDITS.STARTING} free credits</strong><br/>
+            Portrait = {CREDITS.PORTRAIT} cr · Panel image = {CREDITS.PANEL} cr
+          </div>
+        )}
+        {error && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "8px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px" }}>⚠️ {error}</div>}
+        <Btn onClick={handleSubmit} style={{ width: "100%" }}>{tab === "login" ? "▶ ENTER THE STUDIO" : "✦ CREATE ACCOUNT"}</Btn>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 2: SCENE SETUP
+// ─────────────────────────────────────────────
+function SceneScreen({ user, scene, onUpdate, onNext }) {
+  const ready = scene.timeOfDay && scene.terrain && scene.artStyle;
+  return (
+    <div>
+      <StepHeader step={1} total={5} title="SET THE SCENE" subtitle={`Welcome, ${user.username}. Build your world first.`} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "20px" }}>
+        <Card><h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>⏰ TIME OF DAY</h3><OptionGrid options={TIME_OPTIONS} selected={scene.timeOfDay} onSelect={v => onUpdate({ timeOfDay: v })} cols={1} /></Card>
+        <Card><h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🗺️ TERRAIN</h3><OptionGrid options={TERRAIN_OPTIONS} selected={scene.terrain} onSelect={v => onUpdate({ terrain: v })} cols={2} /></Card>
+      </div>
+      <Card style={{ marginBottom: "24px" }}>
+        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🎨 ART STYLE</h3>
+        <OptionGrid options={ART_OPTIONS} selected={scene.artStyle} onSelect={v => onUpdate({ artStyle: v })} cols={3} />
+      </Card>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: CHARACTERS ▶</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 3: CHARACTER CREATOR
+// ─────────────────────────────────────────────
+function CharacterScreen({ scene, characters, onAdd, onUpdate, onNext, imageAgent, creditSystem }) {
+  const [mode, setMode] = useState("list");
+  const [form, setForm] = useState({ name: "", description: "", traits: "", role: "hero" });
+  const [previewResult, setPreviewResult] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [editIdx, setEditIdx] = useState(null);
+  const ROLES = ["Hero", "Villain", "Sidekick", "Mentor", "Neutral"];
+
+  const generatePreview = async () => {
+    if (!form.name || !form.description) return;
+    if (!creditSystem.canAfford(CREDITS.PORTRAIT)) {
+      setPreviewError(`Not enough credits. Portrait costs ${CREDITS.PORTRAIT} credits.`);
+      return;
+    }
+    setPreviewing(true);
+    setPreviewResult(null);
+    setPreviewError("");
+    try {
+      const result = await imageAgent.generateCharacterPortrait(form, scene.artStyle);
+      setPreviewResult(result?.value ? result : null);
+      if (!result?.value) setPreviewError("Generation returned no image. Try again.");
+    } catch (err) {
+      setPreviewError(err.message || "Generation failed. Try again.");
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const saveCharacter = () => {
+    const char = { ...form, imageResult: previewResult };
+    if (editIdx !== null) { onUpdate(editIdx, char); setEditIdx(null); }
+    else onAdd(char);
+    setForm({ name: "", description: "", traits: "", role: "hero" });
+    setPreviewResult(null);
+    setMode("list");
+  };
+
+  const startEdit = (idx) => {
+    setForm({ ...characters[idx] });
+    setPreviewResult(characters[idx].imageResult || null);
+    setEditIdx(idx);
+    setMode("creating");
+  };
+
+  if (mode === "creating") {
+    return (
+      <div>
+        <StepHeader step={2} total={5} title={editIdx !== null ? "EDIT CHARACTER" : "NEW CHARACTER"} subtitle="Describe, preview, and save your character." />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", minHeight: "500px" }}>
+          {/* LEFT: Form */}
+          <Card>
+            <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "18px", marginTop: 0 }}>📋 CHARACTER DETAILS</h3>
+            <Input label="NAME" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Commander Aria" />
+            <Input label="APPEARANCE" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. Tall woman, silver hair, red armor, battle scar on cheek" multiline />
+            <Input label="PERSONALITY & TRAITS" value={form.traits} onChange={v => setForm(f => ({ ...f, traits: v }))} placeholder="e.g. Fierce, protective, haunted by past" multiline />
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, display: "block", marginBottom: "8px" }}>ROLE</label>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {ROLES.map(r => (
+                  <div key={r} onClick={() => setForm(f => ({ ...f, role: r.toLowerCase() }))} style={{ padding: "5px 12px", background: form.role === r.toLowerCase() ? C.ink : C.lightGray, color: form.role === r.toLowerCase() ? C.gold : C.ink, border: `2px solid ${C.ink}`, fontFamily: FONTS.ui, fontSize: "12px", cursor: "pointer" }}>{r}</div>
+                ))}
+              </div>
+            </div>
+
+            {/* Credit info */}
+            <div style={{ background: "#1a1a1a", border: `2px solid ${C.gold}`, padding: "8px 12px", marginBottom: "14px", fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>
+              Preview costs <span style={{ color: C.gold }}>{CREDITS.PORTRAIT} credits</span> · You have <span style={{ color: creditSystem.credits <= 3 ? C.danger : C.success }}>{creditSystem.credits} credits</span>
+            </div>
+
+            {previewError && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "8px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px" }}>⚠️ {previewError}</div>}
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <Btn onClick={generatePreview} disabled={!form.name || !form.description || previewing || !creditSystem.canAfford(CREDITS.PORTRAIT)} variant="secondary">
+                {previewing ? "⟳ GENERATING..." : `👁 PREVIEW (${CREDITS.PORTRAIT}cr)`}
+              </Btn>
+              <Btn onClick={saveCharacter} disabled={!form.name || !previewResult} variant="success">✓ SAVE</Btn>
+              <Btn onClick={() => { setMode("list"); setEditIdx(null); setPreviewUrl(null); }} variant="ghost" small>✕</Btn>
+            </div>
+          </Card>
+
+          {/* RIGHT: Image preview */}
+          <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#111", border: `4px solid ${C.gold}` }}>
+            <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.gold, letterSpacing: "3px", marginBottom: "16px" }}>CHARACTER PREVIEW</div>
+            {previewing && (
+              <div style={{ textAlign: "center" }}>
+                <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+                <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gold, animation: "pulse 1s infinite", marginBottom: "8px" }}>🔤 TRANSLATING PROMPT...</div>
+                <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#666" }}>Agent 3 is optimizing for Puter.js</div>
+              </div>
+            )}
+            {!previewing && previewResult && (
+              <div style={{ width: "100%", maxWidth: "240px" }}>
+                <ComicImage result={previewResult} alt={form.name} style={{ width: "100%", minHeight: "200px", border: `4px solid ${C.gold}`, boxShadow: `0 0 20px ${C.gold}44` }} />
+                {form.name && <div style={{ textAlign: "center", marginTop: "10px", fontFamily: FONTS.display, fontSize: "20px", color: C.paper, letterSpacing: "2px" }}>{form.name}</div>}
+              </div>
+            )}
+            {!previewing && !previewResult && (
+              <div style={{ textAlign: "center", color: "#444", fontFamily: FONTS.body }}>
+                <div style={{ fontSize: "48px", marginBottom: "8px" }}>👤</div>
+                <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>Fill in Name + Appearance<br/>then hit PREVIEW</div>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <StepHeader step={2} total={5} title="CHARACTERS" subtitle="Create your cast. Up to 6 characters." />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "14px", marginBottom: "20px" }}>
+        {characters.map((c, i) => (
+          <Card key={i} style={{ textAlign: "center", padding: "16px", cursor: "pointer" }} onClick={() => startEdit(i)}>
+            {c.imageResult?.value
+              ? <ComicImage result={c.imageResult} alt={c.name} style={{ width: "100%", height: "160px", border: `2px solid ${C.ink}`, marginBottom: "8px" }} />
+              : <div style={{ height: "80px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "40px" }}>👤</div>
+            }
+            <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>{c.name}</div>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, textTransform: "uppercase", marginTop: "2px" }}>{c.role}</div>
+          </Card>
+        ))}
+        {characters.length < 6 && (
+          <div onClick={() => setMode("creating")} style={{ border: `3px dashed ${C.lightGray}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "180px", cursor: "pointer", color: C.lightGray, transition: "all 0.2s", minWidth: "0" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.color = C.gold; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.lightGray; e.currentTarget.style.color = C.lightGray; }}>
+            <div style={{ fontSize: "36px" }}>+</div>
+            <div style={{ fontFamily: FONTS.display, fontSize: "14px", letterSpacing: "2px" }}>ADD CHARACTER</div>
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontFamily: FONTS.ui, fontSize: "12px", color: C.lightGray }}>{characters.length} character{characters.length !== 1 ? "s" : ""}</div>
+        <Btn onClick={onNext} disabled={characters.length === 0} variant="gold">NEXT: PAGE CONFIG ▶</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 4: PAGE CONFIG
+// ─────────────────────────────────────────────
+function ConfigScreen({ config, onUpdate, onNext, onBack, initPanels, creditSystem }) {
+  const panelOptions = [2, 3, 4, 5, 6, 8];
+  const cost = config.panelsPerPage * CREDITS.PANEL;
+  const canAfford = creditSystem.canAfford(cost);
+  const handleNext = () => { initPanels(config.panelsPerPage); onNext(); };
+
+  return (
+    <div>
+      <StepHeader step={3} total={5} title="PAGE LAYOUT" subtitle="Configure your comic page." />
+      <Card style={{ marginBottom: "20px" }}>
+        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>📐 PANELS PER PAGE</h3>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px" }}>
+          {panelOptions.map(n => (
+            <div key={n} onClick={() => onUpdate({ panelsPerPage: n })} style={{ width: "58px", height: "58px", display: "flex", alignItems: "center", justifyContent: "center", background: config.panelsPerPage === n ? C.red : C.paper, border: `3px solid ${C.ink}`, cursor: "pointer", fontFamily: FONTS.display, fontSize: "28px", color: config.panelsPerPage === n ? C.white : C.ink, boxShadow: config.panelsPerPage === n ? "none" : `3px 3px 0 ${C.ink}`, transform: config.panelsPerPage === n ? "translate(2px,2px)" : "none" }}>{n}</div>
+          ))}
+        </div>
+        <div style={{ background: "#1a1a1a", border: `2px solid ${canAfford ? C.gold : C.danger}`, padding: "10px 14px", fontFamily: FONTS.ui, fontSize: "12px", color: canAfford ? C.gold : C.danger }}>
+          {config.panelsPerPage} panels × {CREDITS.PANEL} credits = <strong>{cost} credits</strong> · You have <strong>{creditSystem.credits}</strong>
+          {!canAfford && " — NOT ENOUGH CREDITS"}
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: "24px" }}>
+        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🌆 BACKGROUND DETAIL</h3>
+        <div style={{ display: "flex", gap: "12px", marginBottom: "16px" }}>
+          {[{ v: false, label: "🧹 Clean — minimal background" }, { v: true, label: "🌍 Rich — full environment" }].map(opt => (
+            <div key={String(opt.v)} onClick={() => onUpdate({ hasBackground: opt.v })} style={{ flex: 1, padding: "14px", background: config.hasBackground === opt.v ? C.blue : C.paper, border: `3px solid ${C.ink}`, cursor: "pointer", color: config.hasBackground === opt.v ? C.white : C.ink, fontFamily: FONTS.body, fontSize: "14px", boxShadow: config.hasBackground === opt.v ? "none" : `3px 3px 0 ${C.ink}` }}>{opt.label}</div>
+          ))}
+        </div>
+        {config.hasBackground && <Input label="DESCRIBE BACKGROUND" value={config.backgroundDesc} onChange={v => onUpdate({ backgroundDesc: v })} placeholder="e.g. Crowded market, civilians fleeing, alien ships overhead..." multiline />}
+      </Card>
+
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
+        <Btn onClick={handleNext} disabled={!canAfford} variant="gold">NEXT: WRITE PANELS ▶</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 5: PANEL WRITER
+// ─────────────────────────────────────────────
+function PanelWriterScreen({ config, characters, scene, panelDescriptions, onUpdate, onGenerate, onBack, creditSystem }) {
+  const [title, setTitle] = useState("");
+  const allFilled = panelDescriptions.every(p => p.trim().length > 0) && title.trim();
+  const cost = config.panelsPerPage * CREDITS.PANEL;
+  const canAfford = creditSystem.canAfford(cost);
+
+  return (
+    <div>
+      <StepHeader step={4} total={5} title="WRITE YOUR PANELS" subtitle={`Describe what happens in each of your ${config.panelsPerPage} panels.`} />
+      <Card style={{ marginBottom: "16px" }}>
+        <Input label="🏷️ COMIC TITLE" value={title} onChange={setTitle} placeholder="e.g. THE LAST SIGNAL, SHADOW PROTOCOL..." />
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray }}>
+          Characters: <strong>{characters.map(c => c.name).join(", ") || "none"}</strong> · {scene.terrain}, {scene.timeOfDay} · {scene.artStyle}
+        </div>
+      </Card>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "14px", marginBottom: "24px" }}>
+        {panelDescriptions.map((desc, i) => (
+          <Card key={i} style={{ padding: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+              <div style={{ width: "28px", height: "28px", background: C.ink, color: C.gold, fontFamily: FONTS.display, fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", flexShrink: 0 }}>{i + 1}</div>
+              <span style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>PANEL {i + 1}</span>
+            </div>
+            <textarea value={desc} onChange={e => onUpdate(i, e.target.value)} placeholder={`What happens? Who's there? What action? What emotion?`} rows={4} style={{ width: "100%", background: "#FFFDF5", border: `2px solid ${desc.trim() ? C.success : "#ccc"}`, padding: "8px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+            {desc.trim() && <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: C.success, marginTop: "4px" }}>✓ Ready</div>}
+          </Card>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray, marginBottom: "6px" }}>
+            {panelDescriptions.filter(p => p.trim()).length}/{config.panelsPerPage} panels · Cost: <span style={{ color: canAfford ? C.gold : C.danger }}>{cost} credits</span>
+          </div>
+          <Btn onClick={() => onGenerate(title)} disabled={!allFilled || !canAfford} variant="gold" style={{ fontSize: "20px", padding: "14px 28px" }}>
+            ⚡ GENERATE COMIC
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCREEN 6: COMIC OUTPUT
+// ─────────────────────────────────────────────
+const PANEL_COLORS = [
+  { bg: "#FFF9E6", accent: "#FFD700", shadow: "#B8860B" },
+  { bg: "#E8F4FD", accent: "#2196F3", shadow: "#0D47A1" },
+  { bg: "#FCE4EC", accent: "#E91E63", shadow: "#880E4F" },
+  { bg: "#E8F5E9", accent: "#4CAF50", shadow: "#1B5E20" },
+  { bg: "#F3E5F5", accent: "#9C27B0", shadow: "#4A148C" },
+  { bg: "#FFF3E0", accent: "#FF5722", shadow: "#BF360C" },
+];
+const LAYOUTS = [
+  ["large","small","small","medium"],
+  ["small","small","large","medium"],
+  ["medium","medium","small","small"],
+  ["large","medium","medium"],
+  ["small","small","small","small"],
+];
+
+function ComicOutput({ panels, title, generating, genLog, scene, onReset, creditSystem }) {
+  const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
+
+  if (generating) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+        <div style={{ fontFamily: FONTS.display, fontSize: "clamp(24px,4vw,40px)", color: C.gold, letterSpacing: "4px", marginBottom: "24px", animation: "pulse 1.5s infinite", textAlign: "center" }}>⚡ GENERATING COMIC...</div>
+        <Card style={{ width: "100%", maxWidth: "500px", background: "#111", border: `3px solid ${C.gold}` }}>
+          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px", marginBottom: "12px" }}>
+            ◆ AGENT LOG &nbsp;|&nbsp; ⚡ {creditSystem.credits} CREDITS REMAINING
+          </div>
+          {genLog.map((msg, i) => (
+            <div key={i} style={{ fontFamily: FONTS.ui, fontSize: "12px", color: i === genLog.length - 1 ? C.gold : "#666", marginBottom: "6px", borderLeft: `2px solid ${i === genLog.length - 1 ? C.gold : "#333"}`, paddingLeft: "10px", transition: "color 0.3s" }}>{msg}</div>
+          ))}
+          {!genLog.length && <div style={{ color: "#555", fontFamily: FONTS.ui, fontSize: "12px" }}>Initializing agents...</div>}
+        </Card>
+      </div>
+    );
+  }
+
+  if (!panels.length) return null;
+
+  return (
+    <div>
+      <style>{`@keyframes comicIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}`}</style>
+      <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "20px", boxShadow: `10px 10px 0 #333, 18px 18px 0 #666`, maxWidth: "820px", margin: "0 auto 24px", animation: "comicIn 0.5s ease-out" }}>
+        <div style={{ textAlign: "center", borderBottom: `4px solid ${C.ink}`, paddingBottom: "14px", marginBottom: "16px" }}>
+          <h1 style={{ fontFamily: FONTS.display, fontSize: "clamp(24px,5vw,50px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>{title}</h1>
+          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#888", marginTop: "4px", letterSpacing: "3px" }}>◆ {scene.artStyle?.toUpperCase()} · {scene.terrain?.toUpperCase()} · {scene.timeOfDay?.toUpperCase()} ◆</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+          {panels.map((panel, i) => {
+            const col = PANEL_COLORS[i % PANEL_COLORS.length];
+            const size = layout[i % layout.length] || "medium";
+            const sizeStyle = { large: { gridColumn: "span 2", minHeight: "280px" }, medium: { gridColumn: "span 1", minHeight: "220px" }, small: { gridColumn: "span 1", minHeight: "180px" } }[size] || {};
+            return (
+              <div key={i} style={{ ...sizeStyle, background: col.bg, border: `4px solid ${C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative" }}>
+                <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
+                <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
+                {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
+
+                {/* Image: Puter real image OR Claude SVG */}
+                <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
+                  <ComicImage
+                    result={panel.imageResult}
+                    alt={`Panel ${i+1}`}
+                    style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }}
+                  />
+                </div>
+
+                <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
+                  {panel.dialogue?.map((d, j) => (
+                    <div key={j}>
+                      {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
+                      <SpeechBubble text={d.text} type={d.type || "speech"} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "center", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
+        <CreditBadge credits={creditSystem.credits} />
+        <Btn onClick={onReset} variant="secondary">🔄 CREATE NEW COMIC</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN APP
+// ─────────────────────────────────────────────
+export default function ComicSmith() {
+  const [step, setStep] = useState("login");
+  const [comicTitle, setComicTitle] = useState("");
+  const puterMode = usePuter(); // "loading" | "puter" | "svg"
+  const ctx = useContextAgent();
+  const creditSystem = useCreditSystem(ctx.user?.username);
+  const translator = useTranslatorAgent();
+  const img = useImageAgent(translator, creditSystem, puterMode);
+
+  const handleGenerate = async (title) => {
+    setComicTitle(title);
+    setStep("output");
+    await img.generateComic(ctx.scene, ctx.characters, ctx.config, ctx.panelDescriptions, title);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
+
+      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep("scene"); }} puterMode={puterMode} />}
+
+      {step !== "login" && (
+        <div style={{ maxWidth: "920px", margin: "0 auto" }}>
+          {/* Top bar */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ fontFamily: FONTS.display, fontSize: "26px", color: C.gold, letterSpacing: "4px", textShadow: `2px 2px 0 ${C.ink}` }}>COMICSMITH</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+              <CreditBadge credits={creditSystem.credits} />
+              <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>👤 {ctx.user?.username}</div>
+            </div>
+          </div>
+
+          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("characters")} />}
+          {step === "characters" && <CharacterScreen scene={ctx.scene} characters={ctx.characters} onAdd={ctx.addCharacter} onUpdate={ctx.updateCharacter} onNext={() => setStep("config")} imageAgent={img} creditSystem={creditSystem} />}
+          {step === "config"     && <ConfigScreen config={ctx.config} onUpdate={ctx.updateConfig} onNext={() => setStep("panels")} onBack={() => setStep("characters")} initPanels={ctx.initPanels} creditSystem={creditSystem} />}
+          {step === "panels"     && <PanelWriterScreen config={ctx.config} characters={ctx.characters} scene={ctx.scene} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} onGenerate={handleGenerate} onBack={() => setStep("config")} creditSystem={creditSystem} />}
+          {step === "output"     && <ComicOutput panels={img.panelImages} title={comicTitle} generating={img.generating} genLog={img.genLog} scene={ctx.scene} onReset={() => setStep("scene")} creditSystem={creditSystem} />}
+        </div>
+      )}
+    </div>
+  );
+}
