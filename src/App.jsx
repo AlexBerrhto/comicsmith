@@ -1361,7 +1361,7 @@ const LAYOUTS = [
 // SCREEN 4: Comic Studio
 // ─────────────────────────────────────────────
 
-function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle }) {
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle, updateStory }) {
   const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
@@ -1483,7 +1483,21 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     setGenerating(false);
     setPhase("done");
     log("🎉 Comic complete!");
-  };
+    if (currentStoryId) {
+    const panelsToSave = panels.map(p => ({
+        description: p.description,
+        sfx: p.sfx,
+        dialogue: p.dialogue,
+        optimizedPrompt: p.optimizedPrompt,
+        // skip imageResult — images are in vector DB
+    }));
+    await updateStory(currentStoryId, {
+        title: t,
+        panels: panelsToSave,
+        status: "complete",
+    });
+    }
+  
 
   const regeneratePanel = async (i) => {
     setRegenerating(r => ({ ...r, [i]: true }));
@@ -1752,7 +1766,7 @@ export default function ComicSmith() {
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} />}
         </div>
       )}
     </div>
