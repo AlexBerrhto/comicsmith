@@ -1341,6 +1341,21 @@ function ConfigScreen({ config, onUpdate, onNext, onBack, initPanels, creditSyst
   );
 }
 
+const PANEL_COLORS = [
+  { bg: "#FFF9E6", accent: "#FFD700", shadow: "#B8860B" },
+  { bg: "#E8F4FD", accent: "#2196F3", shadow: "#0D47A1" },
+  { bg: "#FCE4EC", accent: "#E91E63", shadow: "#880E4F" },
+  { bg: "#E8F5E9", accent: "#4CAF50", shadow: "#1B5E20" },
+  { bg: "#F3E5F5", accent: "#9C27B0", shadow: "#4A148C" },
+  { bg: "#FFF3E0", accent: "#FF5722", shadow: "#BF360C" },
+];
+const LAYOUTS = [
+  ["large","small","small","medium"],
+  ["small","small","large","medium"],
+  ["medium","medium","small","small"],
+  ["large","medium","medium"],
+  ["small","small","small","small"],
+];
 
 // ─────────────────────────────────────────────
 // SCREEN 4: Comic Studio
