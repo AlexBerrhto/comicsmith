@@ -508,16 +508,9 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         translatedPrompts.map(async (prompt, i) => {
           try {
             // Check if panel mentions a character with a stored image
-            const panelText = panelDescriptions[i].toLowerCase();
-            const matchedChar = characters.find(c =>
-              c.name && panelText.includes(c.name.toLowerCase()) && c.imageResult?.value
-            );
-
             await creditSystem.deduct(CREDITS.PANEL);
-            const result = matchedChar
-              ? matchedChar.imageResult
-              : await generateImage(prompt, false, panelDescriptions[i]);
-            log(`✅ Panel ${i+1} done${matchedChar ? " (reused character)" : ` (-${CREDITS.PANEL}cr)`}`);
+            const result = await generateImage(prompt, false, panelDescriptions[i]);
+            log(`✅ Panel ${i+1} done (-${CREDITS.PANEL}cr)`);
             return result;
           } catch (err) {
             log(`⚠️ Panel ${i+1} failed: ${err.message}`);
