@@ -1497,7 +1497,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         status: "complete",
     });
     }
-  
+   };
 
   const regeneratePanel = async (i) => {
     setRegenerating(r => ({ ...r, [i]: true }));
