@@ -924,7 +924,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
   const [previews, setPreviews] = useState({}); // key: "bg" | "char_0" | "char_1"
   const [loading, setLoading] = useState({});
 
-  const generatePreview = async (key, prompt) => {
+  const generatePreview = async (key, prompt, description = null) => {
     setLoading(l => ({ ...l, [key]: true }));
     try {
       const res = await fetch("/api/generate", {
@@ -933,7 +933,30 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
         body: JSON.stringify({ prompt: `${prompt}, comic book illustration, bold ink outlines, flat colors, NOT photographic`, width: 512, height: 512 }),
       });
       const d = await res.json();
-      if (d.image) setPreviews(p => ({ ...p, [key]: d.image }));
+      if (d.image) {
+        setPreviews(p => ({ ...p, [key]: d.image }));
+        if (description) {
+          try {
+            const embedRes = await fetch("/api/embed", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: description }),
+            });
+            const embedData = await embedRes.json();
+            if (embedData.embedding) {
+              await supabase.from("scene_embeddings").insert({
+                type: key === "bg" ? "background" : "character",
+                description,
+                embedding: embedData.embedding,
+                image_data: d.image,
+                metadata: { prompt, key },
+              });
+            }
+          } catch (e) {
+            console.warn("Could not store embedding:", e);
+          }
+        }
+      }
     } catch {}
     setLoading(l => ({ ...l, [key]: false }));
   };
@@ -948,10 +971,10 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
     setData(d => ({ ...d, characters: d.characters.filter((_, idx) => idx !== i) }));
   };
 
-  const PreviewBox = ({ previewKey, prompt, label }) => (
+  const PreviewBox = ({ previewKey, prompt, label, description  }) => (
     <div style={{ marginTop: "10px" }}>
       <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-        <Btn onClick={() => generatePreview(previewKey, prompt)} variant="secondary"
+        <Btn onClick={() => generatePreview(previewKey, prompt, description)} variant="secondary"
           style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[previewKey] ? 0.6 : 1 }}>
           {loading[previewKey] ? "⟳ GENERATING..." : previews[previewKey] ? "↺ REGENERATE" : `🖼 PREVIEW ${label}`}
         </Btn>
@@ -991,7 +1014,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
                 <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
                 rows={4} placeholder="Describe the background environment..."
                 style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-                <Btn onClick={() => generatePreview("bg", `${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle, comic book illustration, bold ink outlines`)} variant="secondary"
+                <Btn onClick={() => generatePreview("bg", `${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle, comic book illustration, bold ink outlines`, data.backgroundDesc)} variant="secondary"
                 style={{ marginTop: "8px", fontSize: "11px", padding: "6px 12px", opacity: loading["bg"] ? 0.6 : 1 }}>
                 {loading["bg"] ? "⟳ GENERATING..." : previews["bg"] ? "↺ REGENERATE" : "🖼 PREVIEW"}
                 </Btn>
@@ -1026,7 +1049,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "10px", alignItems: "start" }}>
-                <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`)} variant="secondary"
+               <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`, `${c.name}, ${c.description}, ${c.role}`)} variant="secondary"
                     style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[`char_${i}`] ? 0.6 : 1 }}>
                     {loading[`char_${i}`] ? "⟳ GENERATING..." : previews[`char_${i}`] ? "↺ REGENERATE" : "🖼 PREVIEW"}
                 </Btn>
@@ -1546,7 +1569,7 @@ export default function ComicSmith() {
            console.log("Setting step to panels");
            setStep("panels");
           }} />}
-          {step === "passage"      && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
+          {step === "passage" && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc });
