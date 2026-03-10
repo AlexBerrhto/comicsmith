@@ -27,12 +27,26 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const errText = await response.text();
+      console.error("CF error:", errText);
       return res.status(200).json({ error: errText, cf_status: response.status });
     }
 
+    const contentType = response.headers.get("content-type") || "";
+    
+    // Cloudflare returns JSON with base64 image
+    if (contentType.includes("application/json")) {
+      const json = await response.json();
+      // CF returns { result: { image: "base64string" } }
+      const base64 = json.result?.image || json.image;
+      if (!base64) return res.status(200).json({ error: "No image in response", raw: JSON.stringify(json) });
+      return res.status(200).json({ image: `data:image/png;base64,${base64}` });
+    }
+
+    // Fallback: raw binary
     const arrayBuffer = await response.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
-    return res.status(200).json({ image: `data:image/jpeg;base64,${base64}` });
+    return res.status(200).json({ image: `data:image/png;base64,${base64}` });
+
   } catch (err) {
     return res.status(200).json({ error: err.message });
   }
