@@ -1653,6 +1653,7 @@ export default function ComicSmith() {
   const translator = useTranslatorAgent();
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
+  const [isOldStory, setIsOldStory] = useState(false);
   const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
   const handleGenerate = async (title) => {
@@ -1721,15 +1722,17 @@ export default function ComicSmith() {
               <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>👤 {ctx.user?.username}</div>
             </div>
           </div>
-          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("passage")} onOldStory={() => setStep("old-story")} />}
+          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("style")} onOldStory={() => setStep("old-story")} />}
           {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
-           if (story.scene) ctx.updateScene(story.scene);
-           if (story.config) ctx.updateConfig(story.config);
-           story.characters?.forEach(c => ctx.addCharacter(c));
-           ctx.initPanels(story.config?.panelsPerPage || 4);
-           setCurrentStoryId(story.id);
-           setStep("studio");
+            // Lock the art style from original story
+            if (story.scene) ctx.updateScene(story.scene);
+            if (story.config) ctx.updateConfig(story.config);
+            setCurrentStoryId(story.id);
+            setIsOldStory(true);
+            // Go to passage for new continuation
+            setStep("passage");
           }} />}
+          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("passage")} />}
           {step === "passage" && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
@@ -1746,9 +1749,9 @@ export default function ComicSmith() {
             });
             if (story) setCurrentStoryId(story.id);
             
-            setStep("scene");
+            setStep("studio");
             }} />}
-         {step === "scene" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => { ctx.initPanels(4); setStep("studio"); }} />}
+         {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
          {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} />}
         </div>
       )}
