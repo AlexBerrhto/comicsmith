@@ -1341,18 +1341,34 @@ function ConfigScreen({ config, onUpdate, onNext, onBack, initPanels, creditSyst
   );
 }
 
-// ─────────────────────────────────────────────
-// SCREEN 5: PANEL WRITER
-// ─────────────────────────────────────────────
-function PanelWriterScreen({ config, characters, scene, panelDescriptions, onUpdate, onGenerate, onBack, creditSystem, passage, initPanels }) {
-  const [title, setTitle] = useState("");
-  const [autoGenerating, setAutoGenerating] = useState(false);
-  const allFilled = panelDescriptions.every(p => p.trim().length > 0) && title.trim();
-  const cost = panelDescriptions.length * CREDITS.PANEL;
-  const canAfford = creditSystem.canAfford(cost);
 
-  const autoGeneratePanels = async () => {
+// ─────────────────────────────────────────────
+// SCREEN 4: Comic Studio
+// ─────────────────────────────────────────────
+
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle }) {
+  const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
+  const [title, setTitle] = useState(comicTitle || "");
+  const [localPanels, setLocalPanels] = useState([]);
+  const [editDesc, setEditDesc] = useState({});
+  const [regenerating, setRegenerating] = useState({});
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genLog, setGenLog] = useState([]);
+  const [phase, setPhase] = useState("writing"); // "writing" | "generating" | "done"
+  const log = (msg) => setGenLog(l => [...l, msg]);
+
+  // Step 1 — Auto write panels on mount
+  useEffect(() => {
+    autoWriteAndGenerate();
+  }, []);
+
+  const autoWriteAndGenerate = async () => {
+    setPhase("writing");
     setAutoGenerating(true);
+    setGenLog([]);
+    setLocalPanels([]);
+    log("✍️ AI writing panel descriptions...");
     try {
       const raw = await callLLM(
         `You are a comic book writer. Output ONLY valid JSON, no markdown.`,
@@ -1361,212 +1377,250 @@ Scene passage: "${passage || "A dramatic scene"}"
 Characters: ${characters.map(c => `${c.name} (${c.role}, ${c.description})`).join(", ")}
 Setting: ${scene.terrain}, ${scene.timeOfDay}
 Art style: ${scene.artStyle}
-
 Return: { "title": "COMIC TITLE IN CAPS", "panelCount": 4, "panels": ["panel 1 description", ...] }
-Choose panelCount based on scene complexity. Simple scenes = 2-3 panels. Complex = 5-8 panels.
-Each panel: 1-2 sentences describing action + who is present + emotion + camera angle. Make it dramatic and cinematic.`,
+Choose panelCount based on scene complexity. Simple = 2-3 panels. Complex = 5-8 panels.
+Each panel: 1-2 sentences, action + who is present + emotion + camera angle. Make it dramatic and cinematic.`,
         1000
       );
       const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      if (data.title) setTitle(data.title);
-      if (data.panels?.length) {
-        initPanels(data.panels.length);
-        data.panels.forEach((desc, i) => onUpdate(i, desc));
-      }
+      const newTitle = data.title || "UNTITLED";
+      const newPanels = data.panels || [];
+      setTitle(newTitle);
+      setComicTitle(newTitle);
+      initPanels(newPanels.length);
+      newPanels.forEach((desc, i) => onUpdate(i, desc));
+      log(`✅ ${newPanels.length} panels written`);
+      setAutoGenerating(false);
+
+      // Step 2 — Generate images
+      await generateAllPanels(newPanels, newTitle);
     } catch (err) {
-      console.error("Auto-generate failed:", err);
-    } finally {
+      log("⚠️ Auto-write failed: " + err.message);
       setAutoGenerating(false);
     }
   };
 
-  // Auto-generate on mount if panels are empty
-  useEffect(() => {
-    if (panelDescriptions.every(p => !p.trim())) {
-      autoGeneratePanels();
+  const generateAllPanels = async (descs, t) => {
+    setPhase("generating");
+    setGenerating(true);
+    const totalCost = descs.length * CREDITS.PANEL;
+    if (!creditSystem.canAfford(totalCost)) {
+      log(`❌ Need ${totalCost} credits. You have ${creditSystem.credits}.`);
+      setGenerating(false);
+      setPhase("done");
+      return;
     }
-  }, []);
 
-  const removePanel = (idx) => {
-    const updated = panelDescriptions.filter((_, i) => i !== idx);
-    initPanels(updated.length);
-    updated.forEach((d, i) => onUpdate(i, d));
+    // Write dialogue
+    log("📝 Writing dialogue...");
+    let dialogueData;
+    try {
+      const dialogueRaw = await callLLM(
+        "You are a comic book writer. Output ONLY valid JSON, no markdown.",
+        `Comic: "${t}". Style: ${scene.artStyle}. Setting: ${scene.terrain}, ${scene.timeOfDay}. Characters: ${characters.map(c => c.name).join(", ")}.
+Panels: ${descs.map((d, i) => `Panel ${i+1}: ${d}`).join(" | ")}
+Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name or NARRATOR", "text": "...", "type": "speech|thought|shout|narration" } ] } ] }`,
+        1200
+      );
+      dialogueData = JSON.parse(dialogueRaw.replace(/```json|```/g, "").trim());
+    } catch {
+      dialogueData = { panels: descs.map(() => ({ sfx: null, dialogue: [] })) };
+    }
+    log("✅ Dialogue written");
+
+    // Translate prompts
+    log("🔤 Optimizing prompts...");
+    const translatedPrompts = await Promise.all(
+      descs.map((desc, i) => translator.translatePanel(desc, i, scene, characters, config))
+    );
+    log("✅ Prompts optimized");
+
+    // Generate images
+    log(`🎨 Generating ${descs.length} panel images...`);
+    const results = await Promise.all(
+      translatedPrompts.map(async (prompt, i) => {
+        try {
+          await creditSystem.deduct(CREDITS.PANEL);
+          const res = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, width: 768, height: 512 }),
+          });
+          const d = await res.json();
+          log(`✅ Panel ${i+1} done (-${CREDITS.PANEL}cr)`);
+          return { type: "url", value: d.image };
+        } catch (err) {
+          log(`⚠️ Panel ${i+1} failed`);
+          return { type: "svg", value: null };
+        }
+      })
+    );
+
+    const panels = descs.map((desc, i) => ({
+      description: desc,
+      imageResult: results[i],
+      optimizedPrompt: translatedPrompts[i],
+      sfx: dialogueData.panels?.[i]?.sfx || null,
+      dialogue: dialogueData.panels?.[i]?.dialogue || [],
+    }));
+
+    setLocalPanels(panels);
+    setGenerating(false);
+    setPhase("done");
+    log("🎉 Comic complete!");
+  };
+
+  const regeneratePanel = async (i) => {
+    setRegenerating(r => ({ ...r, [i]: true }));
+    try {
+      const desc = editDesc[i] ?? localPanels[i].description;
+      const prompt = await translator.translatePanel(desc, i, scene, characters, config);
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, width: 768, height: 512 }),
+      });
+      const d = await res.json();
+      setLocalPanels(p => p.map((panel, idx) =>
+        idx === i ? { ...panel, description: desc, imageResult: { type: "url", value: d.image } } : panel
+      ));
+    } catch (err) {
+      console.error("Regen failed:", err);
+    }
+    setRegenerating(r => ({ ...r, [i]: false }));
   };
 
   const addPanel = () => {
-    const newLen = panelDescriptions.length + 1;
+    const newDesc = "";
+    const newLen = localPanels.length + 1;
     initPanels(newLen);
-    onUpdate(newLen - 1, "");
+    onUpdate(newLen - 1, newDesc);
+    setLocalPanels(p => [...p, { description: "", imageResult: null, sfx: null, dialogue: [] }]);
   };
 
-  return (
-    <div>
-      <StepHeader step={4} total={5} title="PANEL WRITER" subtitle="AI wrote your panels — edit, add or remove as needed." />
+  const removePanel = (idx) => {
+    const updated = localPanels.filter((_, i) => i !== idx);
+    setLocalPanels(updated);
+    initPanels(updated.length);
+    updated.forEach((p, i) => onUpdate(i, p.description));
+  };
 
-      <Card style={{ marginBottom: "16px" }}>
-        <Input label="🏷️ COMIC TITLE" value={title} onChange={setTitle} placeholder="e.g. THE LAST SIGNAL, SHADOW PROTOCOL..." />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray }}>
-            Characters: <strong>{characters.map(c => c.name).join(", ") || "none"}</strong> · {scene.terrain}, {scene.timeOfDay} · {scene.artStyle}
-          </div>
-          <Btn onClick={autoGeneratePanels} disabled={autoGenerating} variant="secondary" small>
-            {autoGenerating ? "⟳ REWRITING..." : "↺ REGENERATE ALL"}
-          </Btn>
-        </div>
-      </Card>
-
-      {autoGenerating && (
-        <Card style={{ background: "#111", border: `3px solid ${C.gold}`, marginBottom: "16px", textAlign: "center", padding: "20px" }}>
-          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-          <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gold, animation: "pulse 1s infinite", letterSpacing: "3px" }}>
-            ✍️ AI WRITING YOUR PANELS...
-          </div>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#666", marginTop: "8px" }}>
-            Crafting dramatic scenes from your passage...
-          </div>
-        </Card>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "14px", marginBottom: "24px" }}>
-        {panelDescriptions.map((desc, i) => (
-          <Card key={i} style={{ padding: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "28px", height: "28px", background: C.ink, color: C.gold, fontFamily: FONTS.display, fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", flexShrink: 0 }}>{i + 1}</div>
-                <span style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>PANEL {i + 1}</span>
-              </div>
-              {panelDescriptions.length > 1 && (
-                <span onClick={() => removePanel(i)} style={{ cursor: "pointer", color: C.danger, fontFamily: FONTS.ui, fontSize: "11px" }}>✕ REMOVE</span>
-              )}
-            </div>
-            <textarea
-              value={desc}
-              onChange={e => onUpdate(i, e.target.value)}
-              placeholder="What happens? Who's there? What action? What emotion?"
-              rows={4}
-              style={{ width: "100%", background: "#FFFDF5", border: `2px solid ${desc.trim() ? C.success : "#ccc"}`, padding: "8px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }}
-            />
-            {desc.trim() && <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: C.success, marginTop: "4px" }}>✓ Ready</div>}
-          </Card>
-        ))}
-
-        {panelDescriptions.length < 8 && (
-          <div
-            onClick={addPanel}
-            style={{ border: `3px dashed ${C.lightGray}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "180px", cursor: "pointer", color: C.lightGray, transition: "all 0.2s" }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.color = C.gold; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.lightGray; e.currentTarget.style.color = C.lightGray; }}
-          >
-            <div style={{ fontSize: "36px" }}>+</div>
-            <div style={{ fontFamily: FONTS.display, fontSize: "14px", letterSpacing: "2px" }}>ADD PANEL</div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray, marginBottom: "6px" }}>
-            {panelDescriptions.filter(p => p.trim()).length}/{panelDescriptions.length} panels · Cost: <span style={{ color: canAfford ? C.gold : C.danger }}>{cost} credits</span>
-          </div>
-          <Btn onClick={() => onGenerate(title)} disabled={!allFilled || !canAfford || autoGenerating} variant="gold" style={{ fontSize: "20px", padding: "14px 28px" }}>
-            ⚡ GENERATE COMIC
-          </Btn>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// SCREEN 6: COMIC OUTPUT
-// ─────────────────────────────────────────────
-const PANEL_COLORS = [
-  { bg: "#FFF9E6", accent: "#FFD700", shadow: "#B8860B" },
-  { bg: "#E8F4FD", accent: "#2196F3", shadow: "#0D47A1" },
-  { bg: "#FCE4EC", accent: "#E91E63", shadow: "#880E4F" },
-  { bg: "#E8F5E9", accent: "#4CAF50", shadow: "#1B5E20" },
-  { bg: "#F3E5F5", accent: "#9C27B0", shadow: "#4A148C" },
-  { bg: "#FFF3E0", accent: "#FF5722", shadow: "#BF360C" },
-];
-const LAYOUTS = [
-  ["large","small","small","medium"],
-  ["small","small","large","medium"],
-  ["medium","medium","small","small"],
-  ["large","medium","medium"],
-  ["small","small","small","small"],
-];
-
-function ComicOutput({ panels, title, generating, genLog, scene, onReset, creditSystem }) {
-  const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
-
-  if (generating) {
+  // Loading screen
+  if (phase === "writing" || (phase === "generating" && !localPanels.length)) {
     return (
       <div style={{ minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-        <div style={{ fontFamily: FONTS.display, fontSize: "clamp(24px,4vw,40px)", color: C.gold, letterSpacing: "4px", marginBottom: "24px", animation: "pulse 1.5s infinite", textAlign: "center" }}>⚡ GENERATING COMIC...</div>
+        <div style={{ fontFamily: FONTS.display, fontSize: "clamp(24px,4vw,40px)", color: C.gold, letterSpacing: "4px", marginBottom: "24px", animation: "pulse 1.5s infinite", textAlign: "center" }}>
+          {phase === "writing" ? "✍️ WRITING YOUR STORY..." : "⚡ GENERATING COMIC..."}
+        </div>
         <Card style={{ width: "100%", maxWidth: "500px", background: "#111", border: `3px solid ${C.gold}` }}>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px", marginBottom: "12px" }}>
-            ◆ AGENT LOG &nbsp;|&nbsp; ⚡ {creditSystem.credits} CREDITS REMAINING
-          </div>
+          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px", marginBottom: "12px" }}>◆ AGENT LOG &nbsp;|&nbsp; ⚡ {creditSystem.credits} CREDITS</div>
           {genLog.map((msg, i) => (
-            <div key={i} style={{ fontFamily: FONTS.ui, fontSize: "12px", color: i === genLog.length - 1 ? C.gold : "#666", marginBottom: "6px", borderLeft: `2px solid ${i === genLog.length - 1 ? C.gold : "#333"}`, paddingLeft: "10px", transition: "color 0.3s" }}>{msg}</div>
+            <div key={i} style={{ fontFamily: FONTS.ui, fontSize: "12px", color: i === genLog.length - 1 ? C.gold : "#666", marginBottom: "6px", borderLeft: `2px solid ${i === genLog.length - 1 ? C.gold : "#333"}`, paddingLeft: "10px" }}>{msg}</div>
           ))}
-          {!genLog.length && <div style={{ color: "#555", fontFamily: FONTS.ui, fontSize: "12px" }}>Initializing agents...</div>}
         </Card>
       </div>
     );
   }
 
-  if (!panels.length) return null;
-
   return (
     <div>
       <style>{`@keyframes comicIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}`}</style>
-      <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "20px", boxShadow: `10px 10px 0 #333, 18px 18px 0 #666`, maxWidth: "820px", margin: "0 auto 24px", animation: "comicIn 0.5s ease-out" }}>
-        <div style={{ textAlign: "center", borderBottom: `4px solid ${C.ink}`, paddingBottom: "14px", marginBottom: "16px" }}>
-          <h1 style={{ fontFamily: FONTS.display, fontSize: "clamp(24px,5vw,50px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>{title}</h1>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#888", marginTop: "4px", letterSpacing: "3px" }}>◆ {scene.artStyle?.toUpperCase()} · {scene.terrain?.toUpperCase()} · {scene.timeOfDay?.toUpperCase()} ◆</div>
+
+      {/* Top bar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+        <h1 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,3vw,36px)", color: C.gold, margin: 0, letterSpacing: "4px" }}>{title}</h1>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          <CreditBadge credits={creditSystem.credits} />
+          <Btn onClick={autoWriteAndGenerate} disabled={autoGenerating || generating} variant="secondary" small>↺ REGENERATE ALL</Btn>
+          <Btn onClick={onReset} variant="secondary" small>🔄 NEW COMIC</Btn>
         </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-          {panels.map((panel, i) => {
-            const col = PANEL_COLORS[i % PANEL_COLORS.length];
-            const size = layout[i % layout.length] || "medium";
-            const sizeStyle = { large: { gridColumn: "span 2", minHeight: "280px" }, medium: { gridColumn: "span 1", minHeight: "220px" }, small: { gridColumn: "span 1", minHeight: "180px" } }[size] || {};
-            return (
-              <div key={i} style={{ ...sizeStyle, background: col.bg, border: `4px solid ${C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative" }}>
-                <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
-                <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
-                {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
-
-                {/* Image: Puter real image OR Claude SVG */}
-                <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
-                  <ComicImage
-                    result={panel.imageResult}
-                    alt={`Panel ${i+1}`}
-                    style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }}
-                  />
-                </div>
-
-                <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
-                  {panel.dialogue?.map((d, j) => (
-                    <div key={j}>
-                      {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
-                      <SpeechBubble text={d.text} type={d.type || "speech"} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
-        <CreditBadge credits={creditSystem.credits} />
-        <Btn onClick={onReset} variant="secondary">🔄 CREATE NEW COMIC</Btn>
+      {/* Split layout */}
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "20px", alignItems: "start" }}>
+
+        {/* LEFT — Panel editor */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ fontFamily: FONTS.display, fontSize: "13px", color: C.gold, letterSpacing: "2px" }}>✏️ EDIT PANELS</div>
+          {localPanels.map((panel, i) => (
+            <Card key={i} style={{ padding: "12px", background: "#1a1a1a", border: `2px solid ${regenerating[i] ? C.gold : "#333"}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <div style={{ width: "20px", height: "20px", background: C.ink, color: C.gold, fontFamily: FONTS.display, fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", border: `2px solid ${C.gold}` }}>{i + 1}</div>
+                  <span style={{ fontFamily: FONTS.display, fontSize: "12px", color: C.paper, letterSpacing: "1px" }}>PANEL {i + 1}</span>
+                </div>
+                {localPanels.length > 1 && (
+                  <span onClick={() => removePanel(i)} style={{ cursor: "pointer", color: C.danger, fontFamily: FONTS.ui, fontSize: "10px" }}>✕</span>
+                )}
+              </div>
+              <textarea
+                value={editDesc[i] ?? panel.description}
+                onChange={e => setEditDesc(d => ({ ...d, [i]: e.target.value }))}
+                rows={3}
+                style={{ width: "100%", background: "#111", border: `2px solid #444`, padding: "6px", fontFamily: FONTS.body, fontSize: "11px", color: C.paper, outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
+              />
+              <Btn onClick={() => regeneratePanel(i)} disabled={regenerating[i]} variant="secondary" small style={{ marginTop: "6px", width: "100%", fontSize: "10px" }}>
+                {regenerating[i] ? "⟳ REGENERATING..." : "↺ REGENERATE"}
+              </Btn>
+            </Card>
+          ))}
+
+          {localPanels.length < 8 && (
+            <div onClick={addPanel} style={{ border: `2px dashed #444`, display: "flex", alignItems: "center", justifyContent: "center", padding: "14px", cursor: "pointer", color: "#555", fontFamily: FONTS.display, fontSize: "12px", letterSpacing: "2px", transition: "all 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.color = C.gold; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#444"; e.currentTarget.style.color = "#555"; }}>
+              + ADD PANEL
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT — Comic page */}
+        <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "20px", boxShadow: `10px 10px 0 #333`, animation: "comicIn 0.5s ease-out" }}>
+          <div style={{ textAlign: "center", borderBottom: `4px solid ${C.ink}`, paddingBottom: "14px", marginBottom: "16px" }}>
+            <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>{title}</h2>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#888", marginTop: "4px", letterSpacing: "3px" }}>◆ {scene.artStyle?.toUpperCase()} · {scene.terrain?.toUpperCase()} · {scene.timeOfDay?.toUpperCase()} ◆</div>
+          </div>
+
+          {generating && (
+            <div style={{ textAlign: "center", padding: "20px", fontFamily: FONTS.display, fontSize: "16px", color: C.gold }}>
+              <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+              <div style={{ animation: "pulse 1s infinite" }}>⚡ GENERATING IMAGES...</div>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+            {localPanels.map((panel, i) => {
+              const col = PANEL_COLORS[i % PANEL_COLORS.length];
+              const size = layout[i % layout.length] || "medium";
+              const sizeStyle = { large: { gridColumn: "span 2", minHeight: "280px" }, medium: { gridColumn: "span 1", minHeight: "220px" }, small: { gridColumn: "span 1", minHeight: "180px" } }[size] || {};
+              return (
+                <div key={i} style={{ ...sizeStyle, background: col.bg, border: `4px solid ${regenerating[i] ? C.gold : C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative", transition: "border 0.3s" }}>
+                  <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
+                  <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
+                  {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
+                  {regenerating[i] && (
+                    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
+                      <div style={{ fontFamily: FONTS.display, fontSize: "14px", color: C.gold, animation: "pulse 1s infinite" }}>⟳</div>
+                    </div>
+                  )}
+                  <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
+                    <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }} />
+                  </div>
+                  <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
+                    {panel.dialogue?.map((d, j) => (
+                      <div key={j}>
+                        {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
+                        <SpeechBubble text={d.text} type={d.type || "speech"} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
+        </div>
       </div>
     </div>
   );
@@ -1659,7 +1713,7 @@ export default function ComicSmith() {
            story.characters?.forEach(c => ctx.addCharacter(c));
            ctx.initPanels(story.config?.panelsPerPage || 4);
            setCurrentStoryId(story.id);
-           setStep("panels");
+           setStep("studio");
           }} />}
           {step === "passage" && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
@@ -1679,11 +1733,8 @@ export default function ComicSmith() {
             
             setStep("scene");
             }} />}
-          {step === "scene"      && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => { ctx.initPanels(ctx.config.panelsPerPage); setStep("panels"); }} />}
-          {step === "characters" && <CharacterScreen scene={ctx.scene} characters={ctx.characters} onAdd={ctx.addCharacter} onUpdate={ctx.updateCharacter} onNext={() => setStep("config")} imageAgent={img} creditSystem={creditSystem} />}
-          {step === "config"     && <ConfigScreen config={ctx.config} onUpdate={ctx.updateConfig} onNext={() => setStep("panels")} onBack={() => setStep("characters")} initPanels={ctx.initPanels} creditSystem={creditSystem} />}
-          {step === "panels" && <PanelWriterScreen config={ctx.config} characters={ctx.characters} scene={ctx.scene} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} onGenerate={handleGenerate} onBack={() => setStep("scene")} creditSystem={creditSystem} passage={extractedScene?.passage} initPanels={ctx.initPanels} />}
-          {step === "output"     && <ComicOutput panels={img.panelImages} title={comicTitle} generating={img.generating} genLog={img.genLog} scene={ctx.scene} onReset={() => setStep("scene")} creditSystem={creditSystem} />}
+         {step === "scene" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => { ctx.initPanels(4); setStep("studio"); }} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} />}
         </div>
       )}
     </div>
