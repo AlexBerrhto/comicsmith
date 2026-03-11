@@ -391,38 +391,20 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
   const [genLog, setGenLog] = useState([]);
   const log = useCallback((msg) => setGenLog(l => [...l, msg]), []);
 
-  // Uses shared callLLM proxy
   const callClaude = (system, userMsg, maxTokens = 1000) =>
     callLLM(system, userMsg, maxTokens);
 
-  // ── Backend A: generateViaHuggingFace.js real image generation ─────────────────────────────
   const generateViaHuggingFace = async (prompt, isPortrait) => {
-    // Find character portrait for this panel
-const panelText = descs[i].toLowerCase();
-const matchedCharIdx = characters.findIndex(c =>
-  c.name && panelText.includes(c.name.toLowerCase())
-);
-const referenceImage = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
-  ? confirmedPreviews[`char_${matchedCharIdx}`]
-  : confirmedPreviews["bg"] || null;
-
-const res = await fetch("/api/generate", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ 
-    prompt, 
-    width: 768, 
-    height: 512,
-    referenceImage,
-    strength: 0.65,
-  }),
-});
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, width: isPortrait ? 512 : 768, height: isPortrait ? 512 : 512 }),
+    });
     if (!res.ok) throw new Error("Image generation failed");
     const data = await res.json();
     return data.image;
   };
 
-  // ── Backend B: Claude SVG generation (sandbox fallback) ───────────────────
   const extractSvg = (raw) => {
     const m = raw.match(/<svg[\s\S]*<\/svg>/i);
     return m ? m[0] : null;
@@ -435,7 +417,6 @@ const res = await fetch("/api/generate", {
     const subject = isPortrait
       ? "a character portrait (head + shoulders). Include: background fill, head circle, hair, eyes (two filled circles), nose, mouth arc, neck, shirt collar."
       : "a comic book scene panel. Include: sky/background fill, ground or floor, at least one character figure, environment details.";
-
     const system = `You are an SVG comic artist. Output ONLY a raw SVG element — no markdown, no explanation.
 - Start with <svg ${dims} xmlns="http://www.w3.org/2000/svg">
 - End with </svg>
@@ -443,44 +424,39 @@ const res = await fetch("/api/generate", {
 - Comic art: bold stroke="#111111" stroke-width="2.5" on all shapes, flat fills, clear silhouettes
 - Fill entire canvas background first
 - NO <text> or <script> elements`;
-
     const raw = await callClaude(system, `Draw: ${prompt}`, 900);
     return extractSvg(raw);
   };
 
-  // ── Unified image generator ───────────────────────────────────────────────
   const generateImage = async (prompt, isPortrait, description = null) => {
     const generateFn = async () => {
-        try {
+      try {
         const url = await generateViaHuggingFace(prompt, isPortrait);
         return { type: "url", value: url };
-        } catch {
+      } catch {
         const svg = await generateViaSVG(prompt, isPortrait);
         return { type: "svg", value: svg };
-        }
+      }
     };
-
     if (storyId && description) {
-        return await illustrator.getOrGenerateImage(
+      return await illustrator.getOrGenerateImage(
         storyId,
         isPortrait ? "character" : "panel",
         description,
         generateFn,
         { prompt }
-        );
+      );
     }
     return await generateFn();
-};
-  // ── Character portrait ────────────────────────────────────────────────────
+  };
+
   const generateCharacterPortrait = useCallback(async (character, artStyle) => {
     const ok = await creditSystem.deduct(CREDITS.PORTRAIT);
     if (!ok) throw new Error(`Not enough credits. Portrait costs ${CREDITS.PORTRAIT} credits.`);
-
     const backend = puterMode === "puter" ? "Puter.js 🎨" : "Claude SVG ✏️";
     log(`🔤 Translator: optimizing prompt for "${character.name}"...`);
     const optimizedPrompt = await translatorAgent.translatePortrait(character, artStyle);
     log(`${backend} generating portrait for "${character.name}"...`);
-
     const result = await generateImage(optimizedPrompt, true, character.description);
     if (result.value) {
       characterSheets.current[character.name] = {
@@ -492,21 +468,17 @@ const res = await fetch("/api/generate", {
     return result;
   }, [translatorAgent, creditSystem, log, puterMode]);
 
-  // ── Full comic generation ─────────────────────────────────────────────────
   const generateComic = useCallback(async (scene, characters, config, panelDescriptions, storyTitle) => {
     setGenerating(true);
     setGenLog([]);
     setPanelImages([]);
-
     const totalCost = panelDescriptions.length * CREDITS.PANEL;
     if (!creditSystem.canAfford(totalCost)) {
       log(`❌ Need ${totalCost} credits for ${panelDescriptions.length} panels. You have ${creditSystem.credits}.`);
       setGenerating(false);
       return null;
     }
-
     try {
-      // Step A: Dialogue
       log("📝 Writing dialogue...");
       const dialogueRaw = await callClaude(
         "You are a comic book writer. Output ONLY valid JSON, no markdown.",
@@ -520,7 +492,6 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
       catch { dialogueData = { panels: panelDescriptions.map(() => ({ sfx: null, dialogue: [] })) }; }
       log("✅ Dialogue written");
 
-      // Step B: Translate prompts (Agent 3)
       log(`🔤 Translator Agent: optimizing ${panelDescriptions.length} prompts...`);
       const translatedPrompts = await Promise.all(
         panelDescriptions.map((desc, i) =>
@@ -529,13 +500,11 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
       );
       log("✅ Prompts optimized");
 
-      // Step C: Generate images (parallel)
       const backend = puterMode === "puter" ? "Puter.js 🎨" : "Claude SVG ✏️";
       log(`${backend} generating ${panelDescriptions.length} panel images...`);
       const results = await Promise.all(
         translatedPrompts.map(async (prompt, i) => {
           try {
-            // Check if panel mentions a character with a stored image
             await creditSystem.deduct(CREDITS.PANEL);
             const result = await generateImage(prompt, false, panelDescriptions[i]);
             log(`✅ Panel ${i+1} done (-${CREDITS.PANEL}cr)`);
@@ -565,7 +534,6 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
 
   return { characterSheets, panelImages, generating, genLog, generateCharacterPortrait, generateComic };
 }
-
 // ─────────────────────────────────────────────
 // UNIVERSAL IMAGE RENDERER
 // Handles both Puter URL images and SVG fallback
