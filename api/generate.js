@@ -14,6 +14,10 @@ export default async function handler(req, res) {
 
     if (referenceImage) {
       // img2img — use portrait as reference
+      // Strip NSFW trigger words for SD filter
+      const safePrompt = prompt
+        .replace(/\b(scar|scars|wound|wounds|blood|gore|dead|death|kill|killing|corpse|naked|nude|nudity|explicit|violent|violence|sword|swords|knife|knives|weapon|weapons|gun|guns|battle|fight|fighting|attack|attacking|murder|torture)\b/gi, "")
+        .replace(/\s+/g, " ").trim();
       const base64Data = referenceImage.replace(/^data:image\/\w+;base64,/, "");
       const imageArray = Array.from(Buffer.from(base64Data, "base64"));
       response = await fetch(
@@ -21,7 +25,7 @@ export default async function handler(req, res) {
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ prompt, image: imageArray, strength: 0.65, num_steps: 20, width, height }),
+          body: JSON.stringify({ prompt: safePrompt, image: imageArray, strength: 0.65, num_steps: 20, width, height }),
         }
       );
     } else {
