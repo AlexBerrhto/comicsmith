@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (!accountId || !apiToken) return res.status(500).json({ error: "Cloudflare credentials not configured" });
 
   const imageData = referenceImage
-    ? referenceImage.replace(/^data:image\/\w+;base64,/, "")
+    ? Array.from(Buffer.from(referenceImage.replace(/^data:image\/\w+;base64,/, ""), "base64"))
     : null;
 
   const model = imageData
