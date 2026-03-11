@@ -669,6 +669,22 @@ function SpeechBubble({ text, type = "speech" }) {
   );
 }
 
+function CreditBadge({ credits, cost, label }) {
+  const color = credits <= 3 ? C.danger : credits <= 8 ? C.warn : C.success;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+      <div style={{ background: C.ink, border: `2px solid ${color}`, padding: "5px 12px", fontFamily: FONTS.display, fontSize: "15px", color, letterSpacing: "1px", boxShadow: `0 0 8px ${color}44` }}>
+        ⚡ {credits} CREDITS
+      </div>
+      {cost && (
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>
+          {label}: <span style={{ color: C.gold }}>{cost}cr</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Credit Badge shown in top bar
 function CreditBadge({ credits, cost, label }) {
   const color = credits <= 3 ? C.danger : credits <= 8 ? C.warn : C.success;
@@ -977,7 +993,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `${prompt}, comic book illustration, bold ink outlines, flat colors, NOT photographic`, width: 512, height: 512 }),
+        body: JSON.stringify({ prompt: `${prompt}, comic book illustration, bold ink outlines, flat colors, NOT photographic`, width: 256, height: 256 }),
       });
       const d = await res.json();
       if (d.image) {
@@ -1526,9 +1542,10 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
             const matchedCharIdx = characters.findIndex(c =>
             c.name && panelText.includes(c.name.toLowerCase())
             );
-            const referenceImage = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
-            ? confirmedPreviews[`char_${matchedCharIdx}`]
-            : confirmedPreviews["bg"] || null;
+            const rawRef = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
+                ? confirmedPreviews[`char_${matchedCharIdx}`]
+                : confirmedPreviews["bg"] || null;
+            const referenceImage = rawRef ? await resizeBase64(rawRef, 256) : null;
 
             const res = await fetch("/api/generate", {
             method: "POST",
