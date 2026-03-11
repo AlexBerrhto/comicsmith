@@ -36,7 +36,8 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const errText = await response.text();
-      return res.status(200).json({ error: errText, cf_status: response.status });
+      console.error("Cloudflare error:", response.status, errText);
+      return res.status(200).json({ error: `CF ${response.status}: ${errText}` });
     }
 
     const contentType = response.headers.get("content-type") || "";
