@@ -359,7 +359,7 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 - OVER SHOULDER: for conversation, stalking, pursuit
 
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
-${charVisuals ? `IMPORTANT: Characters must look exactly like this: ${charVisuals}` : ""}
+${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
 Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT realistic, NOT stock photo, hand drawn, ink outlines, flat colors`;
 
     try {
