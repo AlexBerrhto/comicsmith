@@ -380,15 +380,26 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
 
   // ── Backend A: generateViaHuggingFace.js real image generation ─────────────────────────────
   const generateViaHuggingFace = async (prompt, isPortrait) => {
-    const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-        prompt,
-        width: isPortrait ? 512 : 768,
-        height: isPortrait ? 640 : 512,
-        }),
-    });
+    // Find character portrait for this panel
+const panelText = descs[i].toLowerCase();
+const matchedCharIdx = characters.findIndex(c =>
+  c.name && panelText.includes(c.name.toLowerCase())
+);
+const referenceImage = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
+  ? confirmedPreviews[`char_${matchedCharIdx}`]
+  : confirmedPreviews["bg"] || null;
+
+const res = await fetch("/api/generate", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ 
+    prompt, 
+    width: 768, 
+    height: 512,
+    referenceImage,
+    strength: 0.65,
+  }),
+});
     if (!res.ok) throw new Error("Image generation failed");
     const data = await res.json();
     return data.image;
@@ -1396,7 +1407,7 @@ const LAYOUTS = [
 // SCREEN 4: Comic Studio
 // ─────────────────────────────────────────────
 
-function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle, updateStory }) {
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
   const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
@@ -1511,12 +1522,19 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
 
             // No cache hit — generate new
             await creditSystem.deduct(CREDITS.PANEL);
+            const panelText = descs[i].toLowerCase();
+            const matchedCharIdx = characters.findIndex(c =>
+            c.name && panelText.includes(c.name.toLowerCase())
+            );
+            const referenceImage = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
+            ? confirmedPreviews[`char_${matchedCharIdx}`]
+            : confirmedPreviews["bg"] || null;
+
             const res = await fetch("/api/generate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt, width: 768, height: 512 }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, width: 768, height: 512, referenceImage, strength: 0.65 }),
             });
-            const d = await res.json();
 
             // Store in vector DB
             if (d.image && embedData.embedding) {
@@ -1735,6 +1753,7 @@ export default function ComicSmith() {
   const translator = useTranslatorAgent();
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
+  const [confirmedPreviews, setConfirmedPreviews] = useState({});
   const [isOldStory, setIsOldStory] = useState(false);
   const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
@@ -1830,11 +1849,12 @@ export default function ComicSmith() {
                 previews: previews || {}, 
             });
             if (story) setCurrentStoryId(story.id);
+            setConfirmedPreviews(previews || {});
             
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
         </div>
       )}
     </div>
