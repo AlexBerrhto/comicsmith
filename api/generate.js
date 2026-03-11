@@ -3,7 +3,7 @@ export default async function handler(req, res) {
   const { prompt, width = 512, height = 512 } = req.body;
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
-  const apiKey = process.env.GOOGLE_AI_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "Google AI key not configured" });
 
   try {
