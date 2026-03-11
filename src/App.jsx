@@ -283,14 +283,23 @@ Quality boosters to append: highly detailed, sharp focus, professional comic ill
 
     try {
       const prompt = await callClaude(system,
-        `Character: ${character.name}. Appearance: ${character.description}. Personality: ${character.traits}. Role: ${character.role}.
-    Create a portrait prompt showing head and shoulders. Based on the character's traits and role, choose a characteristic expression that reveals their personality — not neutral. A villain should look menacing, a hero determined, a sidekick eager. Include specific eye expression, jaw set, and micro-expression details.`      );
+        `Character: ${character.name}. Role: ${character.role}.
+Visual details:
+- Age: ${character.age || "adult"}, Gender: ${character.gender || "unspecified"}, Build: ${character.build || "average"}
+- Skin tone: ${character.skinTone || "unspecified"}
+- Hair: ${character.hairStyle || ""} ${character.hairColor || ""} hair
+- Eyes: ${character.eyeColor || "brown"} eyes
+- Outfit: ${character.outfit || character.description}
+- Distinguishing features: ${character.distinguishing || "none"}
+- Personality traits: ${character.traits}
+
+Create a portrait prompt showing head and shoulders with a characteristic expression that reveals their personality. A villain should look menacing, a hero determined, a sidekick eager. Include specific skin tone, hair color and style, eye color, outfit details, facial expression, jaw set, and micro-expression details. Be very specific about all visual attributes so the character looks the same every time.`);
       translationLog.current.push({ type: "portrait", input: character.name, output: prompt });
       setTranslating(false);
       return prompt;
     } catch {
       setTranslating(false);
-      return `${character.name}, ${character.description}, comic book portrait, ${artKeywords}, highly detailed`;
+     return `${character.name}, ${character.skinTone || ""} skin, ${character.hairColor || ""} ${character.hairStyle || ""} hair, ${character.eyeColor || ""} eyes, wearing ${character.outfit || character.description}, ${character.role} character, comic book portrait, ${artKeywords}, highly detailed`;
     }
   }, []);
 
@@ -324,7 +333,14 @@ Quality boosters to append: highly detailed, sharp focus, professional comic ill
       village: "quaint village, cobblestone streets, cottages, market square",
     }[scene.terrain] || "generic environment";
 
-    const charList = characters.map(c => `${c.name} (${c.description})`).join(", ");
+    const charList = characters.map(c =>
+        `${c.name} (${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, wearing ${c.outfit || c.description})`
+        ).join(", ");
+
+    const charVisuals = characters
+        .filter(c => panelDesc.toLowerCase().includes(c.name.toLowerCase()))
+        .map(c => `${c.name}: ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, wearing ${c.outfit || c.description}`)
+        .join("; ");
     const bgNote = config.hasBackground ? `Busy background: ${config.backgroundDesc}.` : "Clean focused background.";
 
     const system = `You are an expert image generation prompt engineer for comic book panels.
@@ -343,6 +359,7 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 - OVER SHOULDER: for conversation, stalking, pursuit
 
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
+${charVisuals ? `IMPORTANT: Characters must look exactly like this: ${charVisuals}` : ""}
 Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT realistic, NOT stock photo, hand drawn, ink outlines, flat colors`;
 
     try {
@@ -353,7 +370,7 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
       translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
       return prompt;
     } catch {
-      return `${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
+      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
     }
   }, []);
 
@@ -884,11 +901,27 @@ Return this exact structure:
 {
   "timeOfDay": "dawn|day|dusk|night|storm",
   "terrain": "city|forest|desert|ocean|space|dungeon|mountain|village",
-  "characters": [{ "name": "string", "description": "string", "traits": "string", "role": "hero|villain|sidekick|mentor|neutral" }],
+  "characters": [
+    {
+      "name": "string",
+      "role": "hero|villain|sidekick|mentor|neutral",
+      "age": "child|teen|young adult|adult|middle-aged|elderly",
+      "gender": "male|female|non-binary",
+      "build": "slim|athletic|average|stocky|muscular|petite",
+      "skinTone": "pale|fair|olive|tan|brown|dark brown|ebony",
+      "hairColor": "black|brown|blonde|red|grey|white|auburn|silver|blue|green|pink",
+      "hairStyle": "string (e.g. short curly, long straight, bald, mohawk, bun)",
+      "eyeColor": "brown|blue|green|grey|hazel|amber|black",
+      "outfit": "string (detailed clothing description)",
+      "distinguishing": "string (scars, tattoos, glasses, accessories, etc)",
+      "description": "string (full visual summary combining all above)",
+      "traits": "string (personality traits)"
+    }
+  ],
   "backgroundDesc": "string",
   "hasBackground": true
 }
-If something is unclear, make a reasonable creative guess. Always return all fields.`,
+If a detail is not mentioned in the passage, make a creative but fitting guess based on the character's role and the scene. Always return all fields.`,
         `Scene passage: ${passage}`,
         800
       );
@@ -960,7 +993,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             const embedRes = await fetch("/api/embed", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: `${c.name}, ${c.description}, ${c.role}` }),
+                body: JSON.stringify({ text: `${c.name}, ${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, ${c.outfit || c.description}, ${c.distinguishing || ""}`.trim() }),
             });
             const embedData = await embedRes.json();
             if (!embedData.embedding) return;
