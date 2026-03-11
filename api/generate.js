@@ -1,22 +1,32 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const { prompt, width = 512, height = 512, seed } = req.body;
+  const { prompt, width = 512, height = 512 } = req.body;
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
+  const apiKey = process.env.GOOGLE_AI_KEY;
+  if (!apiKey) return res.status(500).json({ error: "Google AI key not configured" });
+
   try {
-    const encodedPrompt = encodeURIComponent(prompt);
-    const seedParam = seed ? `&seed=${seed}` : "";
-    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=flux${seedParam}`;
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+        }),
+      }
+    );
 
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Pollinations error: ${response.status}`);
+    const data = await response.json();
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!imagePart) return res.status(200).json({ error: "No image returned" });
 
-    const arrayBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    return res.status(200).json({ image: `data:image/jpeg;base64,${base64}` });
-
+    return res.status(200).json({
+      image: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`,
+    });
   } catch (err) {
-    console.error("Generate error:", err.message);
     return res.status(200).json({ error: err.message });
   }
 }
