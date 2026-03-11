@@ -669,21 +669,19 @@ function SpeechBubble({ text, type = "speech" }) {
   );
 }
 
-function CreditBadge({ credits, cost, label }) {
-  const color = credits <= 3 ? C.danger : credits <= 8 ? C.warn : C.success;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-      <div style={{ background: C.ink, border: `2px solid ${color}`, padding: "5px 12px", fontFamily: FONTS.display, fontSize: "15px", color, letterSpacing: "1px", boxShadow: `0 0 8px ${color}44` }}>
-        ⚡ {credits} CREDITS
-      </div>
-      {cost && (
-        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>
-          {label}: <span style={{ color: C.gold }}>{cost}cr</span>
-        </div>
-      )}
-    </div>
-  );
-}
+
+const resizeBase64 = (base64, maxSize = 256) => new Promise((resolve) => {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = maxSize;
+    canvas.height = maxSize;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, maxSize, maxSize);
+    resolve(canvas.toDataURL("image/jpeg", 0.7));
+  };
+  img.src = base64;
+});
 
 // Credit Badge shown in top bar
 function CreditBadge({ credits, cost, label }) {
