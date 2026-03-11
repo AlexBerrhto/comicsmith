@@ -8,12 +8,17 @@ export default async function handler(req, res) {
   if (!accountId || !apiToken) return res.status(500).json({ error: "Cloudflare credentials not configured" });
 
   // Choose model based on whether reference image provided
-  const model = referenceImage
+  const model = imageData
     ? "@cf/runwayml/stable-diffusion-v1-5-img2img"
     : "@cf/black-forest-labs/flux-1-schnell";
 
-  const body = referenceImage
-    ? { prompt, image: referenceImage, strength, num_steps: 20, width, height }
+  // Strip data URI prefix if present
+  const imageData = referenceImage
+    ? referenceImage.replace(/^data:image\/\w+;base64,/, "")
+    : null;
+
+  const body = imageData
+    ? { prompt, image: imageData, strength, num_steps: 20, width, height }
     : { prompt, num_steps: 4, width, height };
 
   try {
