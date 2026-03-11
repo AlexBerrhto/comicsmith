@@ -14,8 +14,12 @@ export default async function handler(req, res) {
     ? "@cf/runwayml/stable-diffusion-v1-5-img2img"
     : "@cf/black-forest-labs/flux-1-schnell";
 
+  const safePrompt = imageData
+    ? `${prompt}, safe for work, family friendly, comic book art, no violence, no nudity`
+    : prompt;
+
   const body = imageData
-    ? { prompt, image: imageData, strength, num_steps: 20, width, height }
+    ? { prompt: safePrompt, image: imageData, strength, num_steps: 20, width, height }
     : { prompt, num_steps: 4, width, height };
 
   try {
@@ -33,6 +37,19 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const errText = await response.text();
       console.error("Cloudflare error:", response.status, errText);
+      // Fall back to text2img if NSFW or other error
+      if (imageData) {
+        const fallback = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+          { method: "POST", headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, num_steps: 4, width, height }) }
+        );
+        if (fallback.ok) {
+          const arr = await fallback.arrayBuffer();
+          const b64 = Buffer.from(arr).toString("base64");
+          return res.status(200).json({ image: `data:image/png;base64,${b64}` });
+        }
+      }
       return res.status(200).json({ error: `CF ${response.status}: ${errText}` });
     }
     const contentType = response.headers.get("content-type") || "";
