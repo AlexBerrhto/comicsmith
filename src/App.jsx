@@ -339,7 +339,7 @@ Create a portrait prompt showing head and shoulders with a characteristic expres
 
     const charVisuals = characters
         .filter(c => panelDesc.toLowerCase().includes(c.name.toLowerCase()))
-        .map(c => `${c.name}: ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, wearing ${c.outfit || c.description}`)
+        .map(c => `${c.name}: ${c.visionDescription || `${c.skinTone||""} skin, ${c.hairColor||""} ${c.hairStyle||""} hair, ${c.eyeColor||""} eyes, wearing ${c.outfit||c.description}`}`)
         .join("; ");
     const bgNote = config.hasBackground ? `Busy background: ${config.backgroundDesc}.` : "Clean focused background.";
 
@@ -997,6 +997,28 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       const d = await res.json();
       if (d.image) {
         setPreviews(p => ({ ...p, [key]: d.image }));
+        // Get LLaVA vision description of the actual generated image
+        if (key.startsWith("char_")) {
+            const idx = parseInt(key.split("_")[1]);
+            try {
+            const descRes = await fetch("/api/describe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ imageBase64: d.image }),
+            });
+            const descData = await descRes.json();
+            if (descData.description) {
+                setData(prev => {
+                const chars = [...(prev.characters || [])];
+                if (chars[idx]) chars[idx] = { ...chars[idx], visionDescription: descData.description };
+                return { ...prev, characters: chars };
+                });
+                console.log(`✅ Vision description for char_${idx}:`, descData.description);
+            }
+            } catch (e) {
+            console.warn("LLaVA describe failed:", e);
+            }
+        }
         if (description) {
           try {
             const embedRes = await fetch("/api/embed", {
