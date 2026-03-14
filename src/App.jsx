@@ -354,7 +354,7 @@ Characters in this world: ${charList}
 ${bgNote}
 Scene style: ${artKeywords}, ${timeAtmosphere}
 Analyze the action and emotion in the panel, then choose the most cinematic camera angle:
-- CLOSE-UP: for intense emotion, dialogue, reaction shots
+- CLOSE-UP: use SPARINGLY, only for the most intense single-emotion moments (max 1 per comic)
 - MEDIUM SHOT: for action between 2 characters, confrontation
 - WIDE SHOT: for establishing scene, epic moments, large environments
 - LOW ANGLE: for powerful/threatening characters, dominance
@@ -365,7 +365,8 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
 ${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
 // REPLACE:
-Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NO text, NO speech bubbles, NO dialogue bubbles, NO captions, NO words, NO letters, NO subtitles ${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
+Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT a portrait, MUST show full environment and background, wide establishing shot, characters shown from waist up or full body
+, NO text, NO speech bubbles, NO dialogue bubbles, NO captions, NO words, NO letters, NO subtitles ${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
@@ -1687,7 +1688,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
           const res = await fetch("/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, width: 768, height: 512, referenceImage, strength: 0.65 }),
+            body: JSON.stringify({ prompt, width: 768, height: 512 }),
           });
           const d = await res.json();
 
