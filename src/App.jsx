@@ -1561,7 +1561,12 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
 
       const raw = await callLLM(systemPrompt, userPrompt, 1400);
       log(hasExplicitPanels ? "📜 Explicit panels detected — following script exactly" : "✨ Scene description detected — AI writing creatively");
-      const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      // REPLACE:
+      let clean = raw.replace(/```json|```/g, "").trim();
+      const s = clean.indexOf("{"); const e = clean.lastIndexOf("}");
+      if (s !== -1 && e !== -1) clean = clean.slice(s, e + 1);
+      clean = clean.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\x00-\x1F\x7F]/g, " ");
+      const data = JSON.parse(clean);
       const newTitle = data.title || "UNTITLED";
       const rawPanels = data.panels || [];
 
