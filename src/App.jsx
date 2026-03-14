@@ -1530,7 +1530,7 @@ const getPanelLayout = (n) => {
 // SCREEN 4: Comic Studio
 // ─────────────────────────────────────────────
 
-function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory,savePage, confirmedPreviews = {} }) {
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, savePage, userId, storyTitle, pageNumber = 1, confirmedPreviews = {} }) {
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
@@ -1853,7 +1853,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
           <Btn onClick={async () => {
             if (!currentStoryId || !localPanels.length) return;
             log("💾 Saving page...");
-            const saved = await savePage(currentStoryId, localPanels, title);
+            const saved = await savePage(currentStoryId, userId, localPanels, title);
             if (saved) log(`✅ Page ${saved.page_number} saved!`);
             else log("⚠️ Save failed");
           }} disabled={!localPanels.length || generating} variant="success" small>💾 SAVE PAGE</Btn>
@@ -2078,7 +2078,7 @@ export default function ComicSmith() {
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} savePage={savePage} confirmedPreviews={confirmedPreviews} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => { setStep("story-choice"); setStoryTitle(""); setPageNumber(1); setPassage(""); setExtractedScene(null); }} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} savePage={savePage} userId={ctx.user?.id} storyTitle={storyTitle} pageNumber={pageNumber} confirmedPreviews={confirmedPreviews} />}
         </div>
       )}
     </div>
@@ -2086,8 +2086,7 @@ export default function ComicSmith() {
 }
 
 // Add after updateStory function:
-const savePage = async (storyId, panels, pageTitle) => {
-  const userId = ctx.user?.id;
+const savePage = async (storyId, userId, panels, pageTitle) => {
   if (!userId || !storyId) return null;
 
   // Upload each panel image to Supabase Storage
