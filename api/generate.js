@@ -8,14 +8,15 @@ export default async function handler(req, res) {
   if (!accountId || !apiToken) return res.status(500).json({ error: "Cloudflare credentials not configured" });
 
   const headers = { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" };
+  const safePrompt = `${prompt}. No text, no speech bubbles, no words, no captions, no watermarks.`;
+  const negativePrompt = "photorealistic, photography, photo, realistic, 3d render, CGI, stock photo, text, speech bubbles, watermark, words, letters";
 
   try {
     let response;
 
     if (referenceImage) {
-      // img2img — use portrait as reference
-      // Strip NSFW trigger words for SD filter
-      const safePrompt = prompt
+      // img2img — SD v1.5 with reference image
+      const cleanPrompt = safePrompt
         .replace(/\b(scar|scars|wound|wounds|blood|gore|dead|death|kill|killing|corpse|naked|nude|nudity|explicit|violent|violence|sword|swords|knife|knives|weapon|weapons|gun|guns|battle|fight|fighting|attack|attacking|murder|torture)\b/gi, "")
         .replace(/\s+/g, " ").trim();
       const base64Data = referenceImage.replace(/^data:image\/\w+;base64,/, "");
@@ -25,17 +26,31 @@ export default async function handler(req, res) {
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ prompt: safePrompt, negative_prompt: "text, speech bubbles, dialogue bubbles, captions, words, letters, watermark, subtitles, written text", image: imageArray, strength: 0.65, num_steps: 20, width, height }),
+          body: JSON.stringify({
+            prompt: cleanPrompt,
+            negative_prompt: negativePrompt,
+            image: imageArray,
+            strength: 0.35,
+            num_steps: 20,
+            width,
+            height,
+          }),
         }
       );
     } else {
-      // text2img — FLUX
+      // text2img — SDXL
       response = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ prompt: `${prompt}. No text, no speech bubbles, no words, no captions, no watermarks.`, num_steps: 4, width, height }),
+          body: JSON.stringify({
+            prompt: safePrompt,
+            negative_prompt: negativePrompt,
+            num_steps: 20,
+            width,
+            height,
+          }),
         }
       );
     }
@@ -43,17 +58,18 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const errText = await response.text();
       console.error("CF error:", response.status, errText);
-      // Fallback to text2img if img2img fails
-      if (referenceImage) {
-        const fallback = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-          { method: "POST", headers, body: JSON.stringify({ prompt: `${prompt}. No text, no speech bubbles, no words, no captions, no watermarks.`, num_steps: 4, width, height }) }
-        );
-        const arr = await fallback.arrayBuffer();
-        const b64 = Buffer.from(arr).toString("base64");
-        return res.status(200).json({ image: `data:image/png;base64,${b64}` });
-      }
-      return res.status(200).json({ error: errText });
+      // Fallback to SDXL if img2img fails
+      const fallback = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ prompt: safePrompt, negative_prompt: negativePrompt, num_steps: 20, width, height }),
+        }
+      );
+      const arr = await fallback.arrayBuffer();
+      const b64 = Buffer.from(arr).toString("base64");
+      return res.status(200).json({ image: `data:image/png;base64,${b64}` });
     }
 
     const contentType = response.headers.get("content-type") || "";
