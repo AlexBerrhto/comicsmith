@@ -1039,7 +1039,10 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             const descRes = await fetch("/api/describe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: d.image }),
+            body: JSON.stringify({ 
+            imageBase64: d.image,
+            type: key === "bg" ? "background" : "character"
+          }),
             });
             const descData = await descRes.json();
             if (descData.description) {
