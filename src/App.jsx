@@ -2087,7 +2087,8 @@ export default function ComicSmith() {
 
 // Add after updateStory function:
 const savePage = async (storyId, panels, pageTitle) => {
-  if (!ctx.user?.id || !storyId) return null;
+  const userId = ctx.user?.id;
+  if (!userId || !storyId) return null;
 
   // Upload each panel image to Supabase Storage
   const savedPanels = await Promise.all(panels.map(async (panel, i) => {
@@ -2116,9 +2117,10 @@ const savePage = async (storyId, panels, pageTitle) => {
     .select("*", { count: "exact", head: true })
     .eq("story_id", storyId);
 
+  // REPLACE:
   const { data, error } = await supabase.from("story_pages").insert({
     story_id: storyId,
-    user_id: ctx.user.id,
+    user_id: userId,
     page_number: (count || 0) + 1,
     title: pageTitle,
     panels: savedPanels.map(p => ({
