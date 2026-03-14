@@ -971,6 +971,7 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
       )}
 
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
         <Btn onClick={analyzePassage} disabled={!passage.trim() || analyzing} variant="gold">
           {analyzing ? "⟳ ANALYSING..." : "🔍 ANALYSE SCENE ▶"}
         </Btn>
@@ -1273,7 +1274,8 @@ function SceneScreen({ user, scene, onUpdate, onNext }) {
       <Card style={{ marginBottom: "24px" }}>
         <OptionGrid options={ART_OPTIONS} selected={scene.artStyle} onSelect={v => onUpdate({ artStyle: v })} cols={3} />
       </Card>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
         <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: WRITE PANELS ▶</Btn>
       </div>
     </div>
@@ -1487,7 +1489,7 @@ const getPanelLayout = (n) => {
 // SCREEN 4: Comic Studio
 // ─────────────────────────────────────────────
 
-function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId,onBAck, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
@@ -1802,6 +1804,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <CreditBadge credits={creditSystem.credits} />
           <Btn onClick={autoWriteAndGenerate} disabled={autoGenerating || generating} variant="secondary" small>↺ REGENERATE ALL</Btn>
+          <Btn onClick={onBack} variant="secondary" small>◀ BACK</Btn>
           <Btn onClick={onReset} variant="secondary" small>🔄 NEW COMIC</Btn>
         </div>
       </div>
@@ -1994,8 +1997,8 @@ export default function ComicSmith() {
             // Go to passage for new continuation
             setStep("passage");
           }} />}
-          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("passage")} />}
-          {step === "passage" && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
+          {step === "style" && <SceneScreen ... onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
+          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={...} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ 
@@ -2019,7 +2022,7 @@ export default function ComicSmith() {
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
         </div>
       )}
     </div>
