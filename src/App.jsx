@@ -329,19 +329,28 @@ Context: ${artKeywords}, ${timeAtmosphere}, ${terrainDesc}
 Characters in this world: ${charList}
 ${bgNote}
 Scene style: ${artKeywords}, ${timeAtmosphere}
-Choose the most cinematic camera angle and include character facial expressions, body language, lighting.
-${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals}` : ""}
+Analyze the action and emotion in the panel, then choose the most cinematic camera angle:
+- CLOSE-UP: for intense emotion, dialogue, reaction shots
+- MEDIUM SHOT: for action between 2 characters, confrontation
+- WIDE SHOT: for establishing scene, epic moments, large environments
+- LOW ANGLE: for powerful/threatening characters, dominance
+- HIGH ANGLE: for vulnerability, overwhelmed characters
+- DUTCH ANGLE: for tension, unease, villain moments
+- OVER SHOULDER: for conversation, stalking, pursuit
+
+Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
+${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
 Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
         `Panel ${panelIdx + 1} action: ${panelDesc}
-        Identify the dominant emotion and choose the best camera angle.`
+        Identify the dominant emotion in this panel and choose the best camera angle to capture it.`
       );
       translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
       return prompt;
     } catch {
-      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed`;
+      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
     }
   }, []);
 
