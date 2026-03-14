@@ -364,9 +364,7 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
 ${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
-// REPLACE:
-Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT a portrait, MUST show full environment and background, wide establishing shot, characters shown from waist up or full body
-, NO text, NO speech bubbles, NO dialogue bubbles, NO captions, NO words, NO letters, NO subtitles ${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
+Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NO text, NO speech bubbles, NO dialogue bubbles, NO captions, NO words, NO letters, NO subtitles${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
@@ -1212,9 +1210,21 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
 // ─────────────────────────────────────────────
 // SCREEN 2: OldStoryScreen
 // ─────────────────────────────────────────────
-function OldStoryScreen({ user, onSelect, onBack }) {
+function OldStoryScreen({ user, onSelect, onBack, loadPages }) {
   const [stories, setStories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedStory, setExpandedStory] = useState(null);
+  const [pages, setPages] = useState([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+
+  const handleExpand = async (story) => {
+    if (expandedStory?.id === story.id) { setExpandedStory(null); setPages([]); return; }
+    setExpandedStory(story);
+    setLoadingPages(true);
+    const p = await loadPages(story.id);
+    setPages(p);
+    setLoadingPages(false);
+  };
 
   useEffect(() => {
     (async () => {
@@ -1245,7 +1255,7 @@ function OldStoryScreen({ user, onSelect, onBack }) {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px", marginBottom: "24px" }}>
         {stories.map(story => (
-          <Card key={story.id} style={{ cursor: "pointer", padding: "20px" }} onClick={() => onSelect(story)}>
+          <Card key={story.id} style={{ padding: "20px" }}>
             <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.ink, marginBottom: "6px" }}>{story.title}</div>
             <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginBottom: "10px" }}>
               {story.scene?.terrain} · {story.scene?.timeOfDay} · {story.scene?.artStyle}
@@ -1253,14 +1263,40 @@ function OldStoryScreen({ user, onSelect, onBack }) {
             <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginBottom: "10px" }}>
               👥 {story.characters?.length || 0} characters · {story.panels?.length || 0} panels
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: story.status === "complete" ? C.success : C.warn }}>
-                {story.status === "complete" ? "✓ COMPLETE" : "◌ DRAFT"}
-              </div>
-              <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: "#888" }}>
-                {new Date(story.updated_at).toLocaleDateString()}
-              </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: story.status === "complete" ? C.success : C.warn }}>
+              {story.status === "complete" ? "✓ COMPLETE" : "◌ DRAFT"}
             </div>
+            <div style={{ fontFamily: FONTS.ui, fontSize: "10px", color: "#888" }}>
+              {new Date(story.updated_at).toLocaleDateString()}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <Btn onClick={() => onSelect(story)} variant="gold" small>▶ CONTINUE</Btn>
+            <Btn onClick={() => handleExpand(story)} variant="secondary" small>
+              {expandedStory?.id === story.id ? "▲ HIDE PAGES" : "📄 VIEW PAGES"}
+            </Btn>
+          </div>
+          {expandedStory?.id === story.id && (
+            <div style={{ marginTop: "12px", borderTop: `2px solid ${C.ink}`, paddingTop: "12px" }}>
+              {loadingPages && <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold }}>⟳ Loading pages...</div>}
+              {!loadingPages && pages.length === 0 && <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray }}>No saved pages yet.</div>}
+              {!loadingPages && pages.map(page => (
+                <div key={page.id} style={{ marginBottom: "12px" }}>
+                  <div style={{ fontFamily: FONTS.display, fontSize: "13px", color: C.ink, marginBottom: "6px" }}>
+                    PAGE {page.page_number} — {page.title}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
+                    {(page.panels || []).slice(0, 6).map((panel, j) => (
+                      panel.imageUrl
+                        ? <img key={j} src={panel.imageUrl} alt={`Panel ${j+1}`} style={{ width: "100%", aspectRatio: "3/2", objectFit: "cover", border: `2px solid ${C.ink}` }} />
+                        : <div key={j} style={{ aspectRatio: "3/2", background: "#E8E0CC", border: `2px solid ${C.gray}` }} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           </Card>
         ))}
       </div>
@@ -1494,7 +1530,7 @@ const getPanelLayout = (n) => {
 // SCREEN 4: Comic Studio
 // ─────────────────────────────────────────────
 
-function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
+function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory,savePage, confirmedPreviews = {} }) {
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
@@ -1814,6 +1850,13 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <CreditBadge credits={creditSystem.credits} />
           <Btn onClick={autoWriteAndGenerate} disabled={autoGenerating || generating} variant="secondary" small>↺ REGENERATE ALL</Btn>
+          <Btn onClick={async () => {
+            if (!currentStoryId || !localPanels.length) return;
+            log("💾 Saving page...");
+            const saved = await savePage(currentStoryId, localPanels, title);
+            if (saved) log(`✅ Page ${saved.page_number} saved!`);
+            else log("⚠️ Save failed");
+          }} disabled={!localPanels.length || generating} variant="success" small>💾 SAVE PAGE</Btn>
           <Btn onClick={onBack} variant="secondary" small>◀ BACK</Btn>
           <Btn onClick={onReset} variant="secondary" small>🔄 NEW COMIC</Btn>
         </div>
@@ -1929,6 +1972,8 @@ export default function ComicSmith() {
   const [currentStoryId, setCurrentStoryId] = useState(null);
   const [confirmedPreviews, setConfirmedPreviews] = useState({});
   const [passage, setPassage] = useState("");
+  const [storyTitle, setStoryTitle] = useState("");
+  const [pageNumber, setPageNumber] = useState(1);
   const [isOldStory, setIsOldStory] = useState(false);
   const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
@@ -1999,7 +2044,7 @@ export default function ComicSmith() {
             </div>
           </div>
           {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("style")} onOldStory={() => setStep("old-story")} />}
-          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
+          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} loadPages={loadPages} onSelect={(story) => {
             // Lock the art style from original story
             if (story.scene) ctx.updateScene(story.scene);
             if (story.config) ctx.updateConfig(story.config);
@@ -2033,9 +2078,67 @@ export default function ComicSmith() {
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} savePage={savePage} confirmedPreviews={confirmedPreviews} />}
         </div>
       )}
     </div>
   );
 }
+
+// Add after updateStory function:
+const savePage = async (storyId, panels, pageTitle) => {
+  if (!ctx.user?.id || !storyId) return null;
+
+  // Upload each panel image to Supabase Storage
+  const savedPanels = await Promise.all(panels.map(async (panel, i) => {
+    if (!panel.imageResult?.value || !panel.imageResult.value.startsWith("data:")) {
+      return { ...panel, imageResult: panel.imageResult };
+    }
+    try {
+      const base64Data = panel.imageResult.value.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      const fileName = `${storyId}/page_${Date.now()}_panel_${i}.png`;
+      const { data, error } = await supabase.storage
+        .from("comic-pages")
+        .upload(fileName, buffer, { contentType: "image/png", upsert: true });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from("comic-pages").getPublicUrl(fileName);
+      return { ...panel, imageResult: { type: "url", value: urlData.publicUrl } };
+    } catch (e) {
+      console.warn(`Panel ${i} upload failed:`, e);
+      return panel;
+    }
+  }));
+
+  // Get current page count for this story
+  const { count } = await supabase
+    .from("story_pages")
+    .select("*", { count: "exact", head: true })
+    .eq("story_id", storyId);
+
+  const { data, error } = await supabase.from("story_pages").insert({
+    story_id: storyId,
+    user_id: ctx.user.id,
+    page_number: (count || 0) + 1,
+    title: pageTitle,
+    panels: savedPanels.map(p => ({
+      description: p.description,
+      imageUrl: p.imageResult?.value,
+      dialogue: p.dialogue,
+      sfx: p.sfx,
+    })),
+  }).select().single();
+
+  if (error) { console.error("Save page error:", error); return null; }
+  return data;
+};
+
+const loadPages = async (storyId) => {
+  const { data, error } = await supabase
+    .from("story_pages")
+    .select("*")
+    .eq("story_id", storyId)
+    .order("page_number", { ascending: true });
+  if (error) { console.error("Load pages error:", error); return []; }
+  return data || [];
+};
