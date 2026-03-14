@@ -1693,7 +1693,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         })
         );
 
-    const panels = descs.map((desc, i) => ({
+    const builtPanels = descs.map((desc, i) => ({
       description: desc,
       imageResult: results[i],
       optimizedPrompt: translatedPrompts[i],
@@ -1701,12 +1701,12 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
       dialogue: dialogueData.panels?.[i]?.dialogue || [],
     }));
 
-    setLocalPanels(panels);
+    setLocalPanels(builtPanels);
     setGenerating(false);
     setPhase("done");
     log("🎉 Comic complete!");
     if (currentStoryId) {
-    const panelsToSave = panels.map(p => ({
+    const panelsToSave = builtPanels.map(p => ({
         description: p.description,
         sfx: p.sfx,
         dialogue: p.dialogue,
