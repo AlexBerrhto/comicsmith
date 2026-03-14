@@ -1788,7 +1788,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
       </div>
 
       {/* Split layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "20px", alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: "20px", alignItems: "start" }}>
 
         {/* LEFT — Panel editor */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -1807,7 +1807,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
               <textarea
                 value={editDesc[i] ?? panel.description}
                 onChange={e => setEditDesc(d => ({ ...d, [i]: e.target.value }))}
-                rows={3}
+                rows={5}
                 style={{ width: "100%", background: "#111", border: `2px solid #444`, padding: "6px", fontFamily: FONTS.body, fontSize: "11px", color: C.paper, outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
               />
               <Btn onClick={() => regeneratePanel(i)} disabled={regenerating[i]} variant="secondary" small style={{ marginTop: "6px", width: "100%", fontSize: "10px" }}>
@@ -1848,7 +1848,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
                     if (!panel) return null;
                     const i = panelIdx;
                     const col = PANEL_COLORS[i % PANEL_COLORS.length];
-                    const minHeight = row.length === 1 ? "320px" : row.length === 2 ? "260px" : "200px";
+                    const minHeight = row.length === 1 ? "480px" : row.length === 2 ? "380px" : "300px";
                     return (
                     <div key={i} style={{ background: col.bg, border: `4px solid ${regenerating[i] ? C.gold : C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative", transition: "border 0.3s", minHeight }}>
                         <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
@@ -1860,7 +1860,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
                         </div>
                         )}
                         <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
-                        <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }} />
+                        <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "220px", border: `2px solid ${col.accent}` }} />
                         </div>
                         <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
                         {panel.dialogue?.map((d, j) => (
