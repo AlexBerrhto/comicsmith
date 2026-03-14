@@ -1997,8 +1997,8 @@ export default function ComicSmith() {
             // Go to passage for new continuation
             setStep("passage");
           }} />}
-          {step === "style" && <SceneScreen ... onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
-          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={...} />}
+          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
+          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ 
