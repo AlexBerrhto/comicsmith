@@ -2097,7 +2097,7 @@ const savePage = async (storyId, userId, panels, pageTitle) => {
     try {
       const base64Data = panel.imageResult.value.replace(/^data:image\/\w+;base64,/, "");
       const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      const fileName = `${storyId}/page_${Date.now()}_panel_${i}.png`;
+      const fileName = `${userId}/${storyId}/page_${Date.now()}_panel_${i}.png`;
       const { data, error } = await supabase.storage
         .from("comic-pages")
         .upload(fileName, buffer, { contentType: "image/png", upsert: true });
