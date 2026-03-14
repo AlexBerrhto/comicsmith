@@ -1,9 +1,10 @@
 // api/llm.js
 const MODELS = [
-  "llama-3.3-70b-versatile",
-  "llama-3.1-8b-instant",
-  "gemma2-9b-it",
-  "mixtral-8x7b-32768",
+  "llama-3.3-70b-versatile",           // 100K TPD — primary
+  "meta-llama/llama-4-scout-17b-16e-instruct", // 500K TPD — best fallback
+  "qwen/qwen3-32b",                     // 500K TPD — second fallback
+  "moonshotai/kimi-k2-instruct",        // 300K TPD — third fallback
+  "llama-3.1-8b-instant",               // 500K TPD — last resort, fastest
 ];
 
 export default async function handler(req, res) {
