@@ -922,7 +922,13 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
         `Scene passage: ${passage}`,
         800
       );
-      const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        let clean = raw.replace(/```json|```/g, "").trim();
+        const start = clean.indexOf("{");
+        const end = clean.lastIndexOf("}");
+        if (start !== -1 && end !== -1) clean = clean.slice(start, end + 1);
+        // Sanitize smart quotes and control characters
+        clean = clean.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\x00-\x1F\x7F]/g, " ");
+        const data = JSON.parse(clean);
       onNext({ passage, extracted: data });
     } catch (err) {
       setError("Could not analyze the scene. Try adding more detail.");
