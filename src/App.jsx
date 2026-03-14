@@ -1630,107 +1630,86 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     // Generate images
     log(`🎨 Generating ${descs.length} panel images...`);
     const results = await Promise.all(
-        translatedPrompts.map(async (prompt, i) => {
-            try {
-            // Check vector DB for similar panel first
-            const embedRes = await fetch("/api/embed", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: descs[i] }),
-            });
-            const embedData = await embedRes.json();
-            if (embedData.embedding) {
-                const threshold = key === "bg" ? 0.80 : 0.75;
-                const { data: matches } = await supabase.rpc("match_scene_embeddings", {
-                    query_embedding: embedData.embedding,
-                    match_threshold: threshold,
-                    match_count: 1,
-                });
-                if (matches?.length) {
-                    console.log(`↩ Similar ${key} already in DB — skipping store`);
-                } else {
-                    await supabase.from("scene_embeddings").insert({
-                    type: key === "bg" ? "background" : "character",
-                    description,
-                    embedding: embedData.embedding,
-                    image_data: d.image,
-                    metadata: { prompt, key },
-                    });
-                    console.log(`✅ Stored new ${key} in DB`);
-                }
-                }
+      translatedPrompts.map(async (prompt, i) => {
+        try {
+          await creditSystem.deduct(CREDITS.PANEL);
 
-            // No cache hit — generate new
-            await creditSystem.deduct(CREDITS.PANEL);
-            // Character registry lookup — same as Python's character_registry
-            // 1. Check confirmedPreviews first (already generated this session)
-            // 2. Fall back to vector DB query by character name
-            const panelText = descs[i].toLowerCase();
-            const matchedChar = characters.find(c => c.name && panelText.includes(c.name.toLowerCase()));
-            let referenceImage = null;
+          // Character reference image lookup
+          const panelText = descs[i].toLowerCase();
+          const matchedChar = characters.find(c => c.name && panelText.includes(c.name.toLowerCase()));
+          let referenceImage = null;
 
-            if (matchedChar) {
+          if (matchedChar) {
             const matchedCharIdx = characters.indexOf(matchedChar);
             if (confirmedPreviews[`char_${matchedCharIdx}`]) {
-                // Found in session previews
-                referenceImage = await resizeBase64(confirmedPreviews[`char_${matchedCharIdx}`], 256);
-                log(`↩ Using session portrait for ${matchedChar.name}`);
+              referenceImage = await resizeBase64(confirmedPreviews[`char_${matchedCharIdx}`], 256);
+              log(`↩ Using session portrait for ${matchedChar.name}`);
             } else {
-                // Not in session — query vector DB (same as Python's lookup_character)
-                try {
+              try {
                 const embedRes = await fetch("/api/embed", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ text: `${matchedChar.name}, ${matchedChar.role}, ${matchedChar.description}` }),
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text: `${matchedChar.name}, ${matchedChar.role}, ${matchedChar.description}` }),
                 });
                 const embedData = await embedRes.json();
                 if (embedData.embedding) {
-                    const { data: matches } = await supabase.rpc("match_scene_embeddings", {
+                  const { data: matches } = await supabase.rpc("match_scene_embeddings", {
                     query_embedding: embedData.embedding,
                     match_threshold: 0.75,
                     match_count: 1,
-                    });
-                    if (matches?.length) {
+                  });
+                  if (matches?.length) {
                     referenceImage = await resizeBase64(matches[0].image_data, 256);
-          log(`↩ Restored portrait for ${matchedChar.name} from DB`);
-          // Also restore into confirmedPreviews for future panels
-          confirmedPreviews[`char_${matchedCharIdx}`] = matches[0].image_data;
-        }
-      }
-    } catch (e) {
-      console.warn("Character registry lookup failed:", e);
-    }
-  }
-} else if (confirmedPreviews["bg"]) {
-  referenceImage = await resizeBase64(confirmedPreviews["bg"], 256);
-}
+                    confirmedPreviews[`char_${matchedCharIdx}`] = matches[0].image_data;
+                    log(`↩ Restored portrait for ${matchedChar.name} from DB`);
+                  }
+                }
+              } catch (e) {
+                console.warn("Character registry lookup failed:", e);
+              }
+            }
+          } else if (confirmedPreviews["bg"]) {
+            referenceImage = await resizeBase64(confirmedPreviews["bg"], 256);
+          }
 
-            const res = await fetch("/api/generate", {
+          // Generate panel image
+          const res = await fetch("/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt, width: 768, height: 512, referenceImage, strength: 0.65 }),
-            });
+          });
+          const d = await res.json();
 
-            // Store in vector DB
+          // Store in vector DB
+          try {
+            const embedRes = await fetch("/api/embed", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: descs[i] }),
+            });
+            const embedData = await embedRes.json();
             if (d.image && embedData.embedding) {
-                await supabase.from("scene_embeddings").insert({
+              await supabase.from("scene_embeddings").insert({
                 story_id: currentStoryId,
                 type: "panel",
                 description: descs[i],
                 embedding: embedData.embedding,
                 image_data: d.image,
                 metadata: { prompt },
-                });
+              });
             }
+          } catch (e) {
+            console.warn("Vector store failed:", e);
+          }
 
-            log(`✅ Panel ${i+1} done (-${CREDITS.PANEL}cr)`);
-            return { type: "url", value: d.image };
-            } catch (err) {
-            log(`⚠️ Panel ${i+1} failed`);
-            return { type: "svg", value: null };
-            }
-        })
-        );
+          log(`✅ Panel ${i + 1} done (-${CREDITS.PANEL}cr)`);
+          return { type: "url", value: d.image };
+        } catch (err) {
+          log(`⚠️ Panel ${i + 1} failed`);
+          return { type: "svg", value: null };
+        }
+      })
+    );
 
     const builtPanels = descs.map((desc, i) => ({
       description: desc,
