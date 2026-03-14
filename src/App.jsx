@@ -1482,7 +1482,6 @@ const getPanelLayout = (n) => {
 // ─────────────────────────────────────────────
 
 function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
-  const layout = useRef(LAYOUTS[Math.floor(Math.random() * LAYOUTS.length)]).current;
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
