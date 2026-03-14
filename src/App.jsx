@@ -1519,10 +1519,46 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     try {
       const desc = editDesc[i] ?? localPanels[i].description;
       const prompt = await translator.translatePanel(desc, i, scene, characters, config);
+
+      // Match the same referenceImage logic used in the main generation pipeline
+      const panelText = desc.toLowerCase();
+      const matchedChar = characters.find(c => c.name && panelText.includes(c.name.toLowerCase()));
+      let referenceImage = null;
+
+      if (matchedChar) {
+        const matchedCharIdx = characters.indexOf(matchedChar);
+        if (confirmedPreviews[`char_${matchedCharIdx}`]) {
+          referenceImage = await resizeBase64(confirmedPreviews[`char_${matchedCharIdx}`], 256);
+        } else {
+          try {
+            const embedRes = await fetch("/api/embed", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: `${matchedChar.name}, ${matchedChar.role}, ${matchedChar.description}` }),
+            });
+            const embedData = await embedRes.json();
+            if (embedData.embedding) {
+              const { data: matches } = await supabase.rpc("match_scene_embeddings", {
+                query_embedding: embedData.embedding,
+                match_threshold: 0.75,
+                match_count: 1,
+              });
+              if (matches?.length) {
+                referenceImage = await resizeBase64(matches[0].image_data, 256);
+              }
+            }
+          } catch (e) {
+            console.warn("Character lookup failed during regen:", e);
+          }
+        }
+      } else if (confirmedPreviews["bg"]) {
+        referenceImage = await resizeBase64(confirmedPreviews["bg"], 256);
+      }
+
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, width: 768, height: 512 }),
+        body: JSON.stringify({ prompt, width: 768, height: 512, referenceImage, strength: 0.65 }),
       });
       const d = await res.json();
       setLocalPanels(p => p.map((panel, idx) =>
