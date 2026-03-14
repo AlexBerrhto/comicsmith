@@ -267,7 +267,7 @@ function useTranslatorAgent() {
     setTranslating(true);
     const artKeywords = {
       classic: "classic American comic book art style, bold ink outlines, flat cel shading, primary colors, Ben-Day dot halftone texture, Jack Kirby inspired",
-      manga:   "manga art style, clean precise linework, screen tone shading, high contrast black and white, expressive eyes, Akira Toriyama inspired",
+      manga: "manga panel, black and white only, no color, grayscale, clean linework, screen tone shading, dynamic composition, speed lines, ink only",
       noir:    "noir comic art style, stark black and white, heavy shadow blocking, dramatic chiaroscuro, Frank Miller Sin City style",
       watercolor: "watercolor comic illustration, soft wet edges, pastel color washes, loose brushwork, Moebius inspired",
       retro:   "1960s retro sci-fi pulp comic art, muted earthy palette, cross-hatch shading, vintage printing aesthetic",
@@ -364,7 +364,7 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
 ${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
-Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NOT realistic, NOT stock photo, hand drawn, ink outlines, flat colors`;
+Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
@@ -485,33 +485,32 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
     try {
       log("📝 Writing dialogue...");
       const dialogueRaw = await callClaude(
-       `You are a comic book artist faithfully adapting a scene. Output ONLY valid JSON, no markdown.`,
-`You MUST stay 100% faithful to this exact passage. Do NOT invent new events, locations, or characters.
-Every panel must reference specific moments, names, and locations from the passage below.
+       `You are a comic book script writer. Your ONLY job is to convert a passage into panel descriptions. Output ONLY valid JSON, no markdown, no explanation.`,
+`STRICT RULES:
+1. Every panel MUST describe a moment that actually happens in the passage below
+2. Use the EXACT character names from the passage
+3. Use the EXACT locations from the passage (do not replace or generalize)
+4. Do NOT invent new events, characters, or settings
+5. Preserve the exact mood and tone of the passage
 
-PASSAGE:
-"${passage || "A dramatic scene"}"
+PASSAGE (adapt this faithfully, word for word):
+"${passage}"
 
-CHARACTERS (use exact names and appearances):
-${characters.map(c => `${c.name}: ${c.role}, ${c.description}`).join("\n")}
+CHARACTERS:
+${characters.map(c => `${c.name}: ${c.description}`).join("\n")}
 
 SETTING: ${scene.terrain}, ${scene.timeOfDay}
 ART STYLE: ${scene.artStyle}
 
-Rules:
-- Extract key visual moments directly from the passage
-- Keep specific locations (e.g. "cathedral ruins" stays "cathedral ruins")
-- Keep specific emotions and actions as written
-- Each panel = one moment from the passage, camera angle, characters present
-
-Return: { 
-  "title": "TITLE FROM PASSAGE IN CAPS", 
-  "panelCount": <2-8>, 
+Return ONLY this JSON:
+{
+  "title": "TITLE FROM PASSAGE IN CAPS",
+  "panelCount": <2-8>,
   "panels": [
     {
-      "description": "faithful description of exact moment from passage, camera angle, characters present",
-      "background": "specific background for this panel e.g. cathedral nave, burning city square, ruined doorway",
-      "characters": ["Name1", "Name2"]
+      "description": "exact moment from passage — who, what, where, emotion, camera angle",
+      "background": "specific location from passage e.g. cathedral nave, ruined doorway, burning square",
+      "characters": ["ExactName1", "ExactName2"]
     }
   ]
 }`,
@@ -1469,13 +1468,14 @@ const PANEL_COLORS = [
   { bg: "#F3E5F5", accent: "#9C27B0", shadow: "#4A148C" },
   { bg: "#FFF3E0", accent: "#FF5722", shadow: "#BF360C" },
 ];
-const LAYOUTS = [
-  ["large","small","small","medium"],
-  ["small","small","large","medium"],
-  ["medium","medium","small","small"],
-  ["large","medium","medium"],
-  ["small","small","small","small"],
-];
+const getPanelLayout = (n) => {
+  if (n === 1) return [[0]];
+  if (n === 2) return [[0, 1]];
+  if (n === 3) return [[0], [1, 2]];
+  if (n === 4) return [[0, 1], [2, 3]];
+  if (n === 5) return [[0, 1], [2, 3, 4]];
+  return [[0, 1, 2], [3, 4, 5]]; // 6+
+};
 
 // ─────────────────────────────────────────────
 // SCREEN 4: Comic Studio
@@ -1840,37 +1840,44 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-            {localPanels.map((panel, i) => {
-              const col = PANEL_COLORS[i % PANEL_COLORS.length];
-              const size = layout[i % layout.length] || "medium";
-              const sizeStyle = { large: { gridColumn: "span 2", minHeight: "280px" }, medium: { gridColumn: "span 1", minHeight: "220px" }, small: { gridColumn: "span 1", minHeight: "180px" } }[size] || {};
-              return (
-                <div key={i} style={{ ...sizeStyle, background: col.bg, border: `4px solid ${regenerating[i] ? C.gold : C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative", transition: "border 0.3s" }}>
-                  <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
-                  <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
-                  {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
-                  {regenerating[i] && (
-                    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
-                      <div style={{ fontFamily: FONTS.display, fontSize: "14px", color: C.gold, animation: "pulse 1s infinite" }}>⟳</div>
+     {(() => {
+            const rows = getPanelLayout(Math.min(localPanels.length, 6));
+            return rows.map((row, rowIdx) => (
+                <div key={rowIdx} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, 1fr)`, gap: "10px", marginBottom: "10px" }}>
+                {row.map((panelIdx) => {
+                    const panel = localPanels[panelIdx];
+                    if (!panel) return null;
+                    const i = panelIdx;
+                    const col = PANEL_COLORS[i % PANEL_COLORS.length];
+                    const minHeight = row.length === 1 ? "320px" : row.length === 2 ? "260px" : "200px";
+                    return (
+                    <div key={i} style={{ background: col.bg, border: `4px solid ${regenerating[i] ? C.gold : C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative", transition: "border 0.3s", minHeight }}>
+                        <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
+                        <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
+                        {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
+                        {regenerating[i] && (
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
+                            <div style={{ fontFamily: FONTS.display, fontSize: "14px", color: C.gold, animation: "pulse 1s infinite" }}>⟳</div>
+                        </div>
+                        )}
+                        <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
+                        <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }} />
+                        </div>
+                        <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
+                        {panel.dialogue?.map((d, j) => (
+                            <div key={j}>
+                            {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
+                            <SpeechBubble text={d.text} type={d.type || "speech"} />
+                            </div>
+                        ))}
+                        </div>
                     </div>
-                  )}
-                  <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
-                    <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "120px", border: `2px solid ${col.accent}` }} />
-                  </div>
-                  <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
-                    {panel.dialogue?.map((d, j) => (
-                      <div key={j}>
-                        {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
-                        <SpeechBubble text={d.text} type={d.type || "speech"} />
-                      </div>
-                    ))}
-                  </div>
+                    );
+                })}
                 </div>
-              );
-            })}
-          </div>
-          <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
+            ));
+            })()}
+            <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
         </div>
       </div>
     </div>
