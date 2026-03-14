@@ -341,7 +341,10 @@ Create a portrait prompt showing head and shoulders with a characteristic expres
         .filter(c => panelDesc.toLowerCase().includes(c.name.toLowerCase()))
         .map(c => `${c.name}: ${c.visionDescription || `${c.skinTone||""} skin, ${c.hairColor||""} ${c.hairStyle||""} hair, ${c.eyeColor||""} eyes, wearing ${c.outfit||c.description}`}`)
         .join("; ");
-    const bgNote = config.hasBackground ? `Busy background: ${config.backgroundDesc}.` : "Clean focused background.";
+
+    // Use per-panel background vision desc if available (from Python pipeline)
+    const bgVisual = config.backgroundVisionDesc || config.backgroundDesc || `${terrainDesc}, ${timeAtmosphere}`;
+    const bgNote = `Background: ${bgVisual}`;
 
     const system = `You are an expert image generation prompt engineer for comic book panels.
 Convert panel action descriptions into precise visual prompts for AI image generation.
@@ -349,6 +352,7 @@ Output ONLY the optimized prompt — no explanation, no quotes.
 Context: ${artKeywords}, ${timeAtmosphere}, ${terrainDesc}
 Characters in this world: ${charList}
 ${bgNote}
+Scene style: ${artKeywords}, ${timeAtmosphere}
 Analyze the action and emotion in the panel, then choose the most cinematic camera angle:
 - CLOSE-UP: for intense emotion, dialogue, reaction shots
 - MEDIUM SHOT: for action between 2 characters, confrontation
@@ -481,10 +485,36 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
     try {
       log("📝 Writing dialogue...");
       const dialogueRaw = await callClaude(
-        "You are a comic book writer. Output ONLY valid JSON, no markdown.",
-        `Comic: "${storyTitle}". Style: ${scene.artStyle}. Setting: ${scene.terrain}, ${scene.timeOfDay}. Characters: ${characters.map(c => c.name).join(", ")}.
-Panels: ${panelDescriptions.map((d, i) => `Panel ${i+1}: ${d}`).join(" | ")}
-Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name or NARRATOR", "text": "...", "type": "speech|thought|shout|narration" } ] } ] }`,
+       `You are a comic book artist faithfully adapting a scene. Output ONLY valid JSON, no markdown.`,
+`You MUST stay 100% faithful to this exact passage. Do NOT invent new events, locations, or characters.
+Every panel must reference specific moments, names, and locations from the passage below.
+
+PASSAGE:
+"${passage || "A dramatic scene"}"
+
+CHARACTERS (use exact names and appearances):
+${characters.map(c => `${c.name}: ${c.role}, ${c.description}`).join("\n")}
+
+SETTING: ${scene.terrain}, ${scene.timeOfDay}
+ART STYLE: ${scene.artStyle}
+
+Rules:
+- Extract key visual moments directly from the passage
+- Keep specific locations (e.g. "cathedral ruins" stays "cathedral ruins")
+- Keep specific emotions and actions as written
+- Each panel = one moment from the passage, camera angle, characters present
+
+Return: { 
+  "title": "TITLE FROM PASSAGE IN CAPS", 
+  "panelCount": <2-8>, 
+  "panels": [
+    {
+      "description": "faithful description of exact moment from passage, camera angle, characters present",
+      "background": "specific background for this panel e.g. cathedral nave, burning city square, ruined doorway",
+      "characters": ["Name1", "Name2"]
+    }
+  ]
+}`,
         1200
       );
       let dialogueData;
@@ -997,30 +1027,37 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       const d = await res.json();
       if (d.image) {
         setPreviews(p => ({ ...p, [key]: d.image }));
-        // Get LLaVA vision description of the actual generated image
-        if (key.startsWith("char_")) {
-            const idx = parseInt(key.split("_")[1]);
-            try {
+
+        // LLaVA vision description (same as Python's describe_image_with_vision)
+        try {
             const descRes = await fetch("/api/describe", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ imageBase64: d.image }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: d.image }),
             });
             const descData = await descRes.json();
             if (descData.description) {
+            if (key === "bg") {
+                // Store background vision description
+                setData(prev => ({ ...prev, backgroundVisionDesc: descData.description }));
+                console.log("✅ Background vision desc:", descData.description);
+            } else if (key.startsWith("char_")) {
+                // Store character vision description
+                const idx = parseInt(key.split("_")[1]);
                 setData(prev => {
                 const chars = [...(prev.characters || [])];
                 if (chars[idx]) chars[idx] = { ...chars[idx], visionDescription: descData.description };
                 return { ...prev, characters: chars };
                 });
-                console.log(`✅ Vision description for char_${idx}:`, descData.description);
+                console.log(`✅ Character vision desc for char_${idx}:`, descData.description);
             }
-            } catch (e) {
+            }
+        } catch (e) {
             console.warn("LLaVA describe failed:", e);
-            }
         }
+
         if (description) {
-          try {
+                try {
             const embedRes = await fetch("/api/embed", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1482,23 +1519,33 @@ Each panel: 1-2 sentences, action + who is present + emotion + camera angle. Mak
       );
       const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
       const newTitle = data.title || "UNTITLED";
-      const newPanels = data.panels || [];
-      setTitle(newTitle);
-      setComicTitle(newTitle);
-      initPanels(newPanels.length);
-      newPanels.forEach((desc, i) => onUpdate(i, desc));
-      log(`✅ ${newPanels.length} panels written`);
-      setAutoGenerating(false);
+      const rawPanels = data.panels || [];
 
-      // Step 2 — Generate images
-      await generateAllPanels(newPanels, newTitle);
+    // Normalize — handle both string array (old) and object array (new)
+      const newPanels = rawPanels.map(p =>
+      typeof p === "string"
+        ? { description: p, background: null, characters: [] }
+        : p
+    );
+
+    setTitle(newTitle);
+    setComicTitle(newTitle);
+    initPanels(newPanels.length);
+    newPanels.forEach((p, i) => onUpdate(i, p.description));
+    log(`✅ ${newPanels.length} panels written`);
+    setAutoGenerating(false);
+    await generateAllPanels(newPanels, newTitle);
     } catch (err) {
       log("⚠️ Auto-write failed: " + err.message);
       setAutoGenerating(false);
     }
   };
 
-  const generateAllPanels = async (descs, t) => {
+  const generateAllPanels = async (panels, t) => {
+  // Support both old string array and new object array
+  const descs = panels.map(p => typeof p === "string" ? p : p.description);
+  const panelBgs = panels.map(p => (typeof p === "object" && p.background) ? p.background : null);
+  const panelChars = panels.map(p => (typeof p === "object" && p.characters) ? p.characters : []);
     setPhase("generating");
     setGenerating(true);
     const totalCost = descs.length * CREDITS.PANEL;
@@ -1529,8 +1576,16 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     // Translate prompts
     log("🔤 Optimizing prompts...");
     const translatedPrompts = await Promise.all(
-      descs.map((desc, i) => translator.translatePanel(desc, i, scene, characters, config))
-    );
+        descs.map((desc, i) => translator.translatePanel(
+            desc, i, scene, characters, {
+            ...config,
+            // Use per-panel background if available, fall back to global
+            backgroundVisionDesc: panelBgs[i]
+                ? panelBgs[i]
+                : (config.backgroundVisionDesc || config.backgroundDesc),
+            }
+        ))
+        );
     log("✅ Prompts optimized");
 
     // Generate images
@@ -1546,27 +1601,70 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
             });
             const embedData = await embedRes.json();
             if (embedData.embedding) {
+                const threshold = key === "bg" ? 0.80 : 0.75;
                 const { data: matches } = await supabase.rpc("match_scene_embeddings", {
-                query_embedding: embedData.embedding,
-                match_threshold: 0.88,
-                match_count: 1,
+                    query_embedding: embedData.embedding,
+                    match_threshold: threshold,
+                    match_count: 1,
                 });
                 if (matches?.length) {
-                log(`✅ Panel ${i+1} reused from cache`);
-                return { type: "url", value: matches[0].image_data, cached: true };
+                    console.log(`↩ Similar ${key} already in DB — skipping store`);
+                } else {
+                    await supabase.from("scene_embeddings").insert({
+                    type: key === "bg" ? "background" : "character",
+                    description,
+                    embedding: embedData.embedding,
+                    image_data: d.image,
+                    metadata: { prompt, key },
+                    });
+                    console.log(`✅ Stored new ${key} in DB`);
                 }
-            }
+                }
 
             // No cache hit — generate new
             await creditSystem.deduct(CREDITS.PANEL);
+            // Character registry lookup — same as Python's character_registry
+            // 1. Check confirmedPreviews first (already generated this session)
+            // 2. Fall back to vector DB query by character name
             const panelText = descs[i].toLowerCase();
-            const matchedCharIdx = characters.findIndex(c =>
-            c.name && panelText.includes(c.name.toLowerCase())
-            );
-            const rawRef = matchedCharIdx !== -1 && confirmedPreviews[`char_${matchedCharIdx}`]
-                ? confirmedPreviews[`char_${matchedCharIdx}`]
-                : confirmedPreviews["bg"] || null;
-            const referenceImage = rawRef ? await resizeBase64(rawRef, 256) : null;
+            const matchedChar = characters.find(c => c.name && panelText.includes(c.name.toLowerCase()));
+            let referenceImage = null;
+
+            if (matchedChar) {
+            const matchedCharIdx = characters.indexOf(matchedChar);
+            if (confirmedPreviews[`char_${matchedCharIdx}`]) {
+                // Found in session previews
+                referenceImage = await resizeBase64(confirmedPreviews[`char_${matchedCharIdx}`], 256);
+                log(`↩ Using session portrait for ${matchedChar.name}`);
+            } else {
+                // Not in session — query vector DB (same as Python's lookup_character)
+                try {
+                const embedRes = await fetch("/api/embed", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: `${matchedChar.name}, ${matchedChar.role}, ${matchedChar.description}` }),
+                });
+                const embedData = await embedRes.json();
+                if (embedData.embedding) {
+                    const { data: matches } = await supabase.rpc("match_scene_embeddings", {
+                    query_embedding: embedData.embedding,
+                    match_threshold: 0.75,
+                    match_count: 1,
+                    });
+                    if (matches?.length) {
+                    referenceImage = await resizeBase64(matches[0].image_data, 256);
+          log(`↩ Restored portrait for ${matchedChar.name} from DB`);
+          // Also restore into confirmedPreviews for future panels
+          confirmedPreviews[`char_${matchedCharIdx}`] = matches[0].image_data;
+        }
+      }
+    } catch (e) {
+      console.warn("Character registry lookup failed:", e);
+    }
+  }
+} else if (confirmedPreviews["bg"]) {
+  referenceImage = await resizeBase64(confirmedPreviews["bg"], 256);
+}
 
             const res = await fetch("/api/generate", {
             method: "POST",
@@ -1875,7 +1973,11 @@ export default function ComicSmith() {
           {step === "passage" && <ScenePassageScreen onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
-            ctx.updateConfig({ hasBackground: data.hasBackground, backgroundDesc: data.backgroundDesc });
+            ctx.updateConfig({ 
+                hasBackground: data.hasBackground, 
+                backgroundDesc: data.backgroundDesc,
+                backgroundVisionDesc: data.backgroundVisionDesc || data.backgroundDesc,
+                });
             data.characters.forEach(c => ctx.addCharacter(c));
             
             // Save draft to Supabase
