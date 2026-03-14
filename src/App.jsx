@@ -1216,7 +1216,34 @@ function OldStoryScreen({ user, onSelect, onBack, loadPages }) {
   const [expandedStory, setExpandedStory] = useState(null);
   const [pages, setPages] = useState([]);
   const [loadingPages, setLoadingPages] = useState(false);
+  // ADD BEFORE IT:
+  const deletePage = async (pageId) => {
+    const { data: page } = await supabase
+      .from("story_pages")
+      .select("panels")
+      .eq("id", pageId)
+      .single();
 
+    if (page?.panels) {
+      const filePaths = page.panels
+        .map(p => {
+          if (!p.imageUrl) return null;
+          const url = new URL(p.imageUrl);
+          return url.pathname.split("/object/public/comic-pages/")[1];
+        })
+        .filter(Boolean);
+      if (filePaths.length) {
+        await supabase.storage.from("comic-pages").remove(filePaths);
+      }
+    }
+
+    const { error } = await supabase
+      .from("story_pages")
+      .delete()
+      .eq("id", pageId);
+
+    if (!error) setPages(p => p.filter(pg => pg.id !== pageId));
+  };
   const handleExpand = async (story) => {
     if (expandedStory?.id === story.id) { setExpandedStory(null); setPages([]); return; }
     setExpandedStory(story);
@@ -1283,8 +1310,11 @@ function OldStoryScreen({ user, onSelect, onBack, loadPages }) {
               {!loadingPages && pages.length === 0 && <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray }}>No saved pages yet.</div>}
               {!loadingPages && pages.map(page => (
                 <div key={page.id} style={{ marginBottom: "12px" }}>
-                  <div style={{ fontFamily: FONTS.display, fontSize: "13px", color: C.ink, marginBottom: "6px" }}>
-                    PAGE {page.page_number} — {page.title}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <div style={{ fontFamily: FONTS.display, fontSize: "13px", color: C.ink }}>
+                      PAGE {page.page_number} — {page.title}
+                    </div>
+                    <Btn onClick={() => deletePage(page.id)} variant="danger" small>✕ DELETE</Btn>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
                     {(page.panels || []).slice(0, 6).map((panel, j) => (
@@ -2106,7 +2136,7 @@ const savePage = async (storyId, userId, panels, pageTitle) => {
       return { ...panel, imageResult: { type: "url", value: urlData.publicUrl } };
     } catch (e) {
       console.warn(`Panel ${i} upload failed:`, e);
-      return panel;
+      return { ...panel, imageResult: { type: "url", value: null } };
     }
   }));
 
