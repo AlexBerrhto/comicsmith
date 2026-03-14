@@ -1,18 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// ─────────────────────────────────────────────
-// SUPABASE CLIENT
-// Replace the two values below with yours from
-// Supabase → Project Settings → API
-// ─────────────────────────────────────────────
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  || "";
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON || "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
-// ─────────────────────────────────────────────
-// DESIGN TOKENS
-// ─────────────────────────────────────────────
 const C = {
   ink: "#0D0D0D", paper: "#F5EDD6", red: "#C0392B",
   gold: "#D4A017", blue: "#1A3A5C", gray: "#4A4A4A",
@@ -25,13 +17,8 @@ const FONTS = {
   ui: "'Courier New',monospace",
 };
 
-// Credit costs
 const CREDITS = { PORTRAIT: 2, PANEL: 3, STARTING: 20 };
 
-// ─────────────────────────────────────────────
-// SHARED LLM CALLER
-// Routes through /api/llm proxy (Gemini backend)
-// ─────────────────────────────────────────────
 async function callLLM(system, userMsg, maxTokens = 1000) {
   const res = await fetch("/api/llm", {
     method: "POST",
@@ -46,10 +33,6 @@ async function callLLM(system, userMsg, maxTokens = 1000) {
   return data.text || "";
 }
 
-
-// ─────────────────────────────────────────────
-// SCENE OPTIONS
-// ─────────────────────────────────────────────
 const TIME_OPTIONS = [
   { id: "dawn",  label: "🌅 Dawn",    desc: "Soft orange haze, long shadows" },
   { id: "day",   label: "☀️ Daytime", desc: "Bright, vivid, high contrast" },
@@ -75,6 +58,7 @@ const ART_OPTIONS = [
   { id: "retro",      label: "📺 Retro Sci-Fi",    desc: "1960s pulp, muted palette" },
   { id: "graffiti",   label: "🖌️ Graffiti",        desc: "Bold outlines, vibrant spray colors" },
 ];
+
 // ─────────────────────────────────────────────
 // AGENT 5 — ILLUSTRATOR AGENT (Vector Cache)
 // ─────────────────────────────────────────────
@@ -113,25 +97,17 @@ function createIllustratorAgent() {
 
   const getOrGenerateImage = async (storyId, type, description, generateFn, metadata = {}) => {
     try {
-      // 1. Get embedding for this description
       const embedding = await getEmbedding(description);
       if (!embedding) return await generateFn();
-
-      // 2. Check vector DB for similar image
       const match = await findSimilar(embedding);
       if (match) {
         console.log(`Cache hit! Reusing image (similarity: ${match.similarity.toFixed(2)})`);
         return { type: "url", value: match.image_data, cached: true };
       }
-
-      // 3. No match — generate new image
       const result = await generateFn();
-
-      // 4. Store in vector DB for future reuse
       if (result?.value) {
         await storeEmbedding(storyId, type, description, embedding, result.value, metadata);
       }
-
       return result;
     } catch (err) {
       console.error("Illustrator agent error:", err);
@@ -144,19 +120,16 @@ function createIllustratorAgent() {
 
 // ─────────────────────────────────────────────
 // PUTER.JS LOADER
-// Tries to load Puter.js; falls back gracefully if sandbox blocks it
 // ─────────────────────────────────────────────
 function usePuter() {
-  const [mode, setMode] = useState("loading"); // "loading" | "puter" | "svg"
+  const [mode, setMode] = useState("loading");
 
   useEffect(() => {
-    // Already available (e.g. deployed page)
     if (window.puter) { setMode("puter"); return; }
 
     let settled = false;
     const settle = (m) => { if (!settled) { settled = true; setMode(m); } };
 
-    // Timeout: if puter doesn't appear in 5s, switch to SVG mode
     const timeout = setTimeout(() => {
       console.warn("Puter.js not available — using SVG fallback mode");
       settle("svg");
@@ -164,7 +137,7 @@ function usePuter() {
 
     const pollForPuter = (attempts = 0) => {
       if (window.puter) { clearTimeout(timeout); settle("puter"); return; }
-      if (attempts > 60) return; // let timeout handle it
+      if (attempts > 60) return;
       setTimeout(() => pollForPuter(attempts + 1), 80);
     };
 
@@ -181,28 +154,36 @@ function usePuter() {
     return () => clearTimeout(timeout);
   }, []);
 
-  return mode; // "loading" | "puter" | "svg"
+  return mode;
 }
 
 // ─────────────────────────────────────────────
-// CREDIT SYSTEM
+// FIX #6: CREDIT SYSTEM — sync with Supabase profile credits on first load
 // ─────────────────────────────────────────────
-function useCreditSystem(username) {
+function useCreditSystem(username, initialCredits = null) {
   const [credits, setCredits] = useState(null);
   const storageKey = username ? `credits:${username}` : null;
 
-  // Load credits from storage on mount / username change
   useEffect(() => {
     if (!storageKey) return;
     (async () => {
       try {
         const result = await window.storage.get(storageKey);
-        setCredits(result ? parseInt(result.value) : CREDITS.STARTING);
+        if (result) {
+          // Use the higher of stored vs Supabase value to avoid resetting
+          const stored = parseInt(result.value);
+          setCredits(initialCredits !== null ? Math.max(stored, initialCredits) : stored);
+        } else {
+          // First time: seed from Supabase profile credits
+          const seed = initialCredits !== null ? initialCredits : CREDITS.STARTING;
+          setCredits(seed);
+          await window.storage.set(storageKey, String(seed));
+        }
       } catch {
-        setCredits(CREDITS.STARTING);
+        setCredits(initialCredits !== null ? initialCredits : CREDITS.STARTING);
       }
     })();
-  }, [storageKey]);
+  }, [storageKey, initialCredits]);
 
   const saveCredits = useCallback(async (amount) => {
     if (!storageKey) return;
@@ -252,17 +233,14 @@ function useContextAgent() {
 
 // ─────────────────────────────────────────────
 // AGENT 3: TRANSLATOR AGENT
-// Converts raw user prompts → Puter-optimized image prompts
 // ─────────────────────────────────────────────
 function useTranslatorAgent() {
   const [translating, setTranslating] = useState(false);
   const translationLog = useRef([]);
 
-  // Uses shared callLLM proxy
   const callClaude = (system, userMsg, maxTokens = 300) =>
     callLLM(system, userMsg, maxTokens);
 
-  // Translate a character description → portrait generation prompt
   const translatePortrait = useCallback(async (character, artStyle) => {
     setTranslating(true);
     const artKeywords = {
@@ -293,17 +271,16 @@ Visual details:
 - Distinguishing features: ${character.distinguishing || "none"}
 - Personality traits: ${character.traits}
 
-Create a portrait prompt showing head and shoulders with a characteristic expression that reveals their personality. A villain should look menacing, a hero determined, a sidekick eager. Include specific skin tone, hair color and style, eye color, outfit details, facial expression, jaw set, and micro-expression details. Be very specific about all visual attributes so the character looks the same every time.`);
+Create a portrait prompt showing head and shoulders with a characteristic expression.`);
       translationLog.current.push({ type: "portrait", input: character.name, output: prompt });
       setTranslating(false);
       return prompt;
     } catch {
       setTranslating(false);
-     return `${character.name}, ${character.skinTone || ""} skin, ${character.hairColor || ""} ${character.hairStyle || ""} hair, ${character.eyeColor || ""} eyes, wearing ${character.outfit || character.description}, ${character.role} character, comic book portrait, ${artKeywords}, highly detailed`;
+      return `${character.name}, ${character.skinTone || ""} skin, ${character.hairColor || ""} ${character.hairStyle || ""} hair, ${character.eyeColor || ""} eyes, wearing ${character.outfit || character.description}, ${character.role} character, comic book portrait, ${artKeywords}, highly detailed`;
     }
   }, []);
 
-  // Translate a panel description → scene generation prompt
   const translatePanel = useCallback(async (panelDesc, panelIdx, scene, characters, config) => {
     const artKeywords = {
       classic: "classic American comic book panel, bold ink outlines, flat cel shading, primary color palette, Ben-Day dots",
@@ -334,15 +311,14 @@ Create a portrait prompt showing head and shoulders with a characteristic expres
     }[scene.terrain] || "generic environment";
 
     const charList = characters.map(c =>
-        `${c.name} (${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, wearing ${c.outfit || c.description})`
-        ).join(", ");
+      `${c.name} (${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, wearing ${c.outfit || c.description})`
+    ).join(", ");
 
     const charVisuals = characters
-        .filter(c => panelDesc.toLowerCase().includes(c.name.toLowerCase()))
-        .map(c => `${c.name}: ${c.visionDescription || `${c.skinTone||""} skin, ${c.hairColor||""} ${c.hairStyle||""} hair, ${c.eyeColor||""} eyes, wearing ${c.outfit||c.description}`}`)
-        .join("; ");
+      .filter(c => panelDesc.toLowerCase().includes(c.name.toLowerCase()))
+      .map(c => `${c.name}: ${c.visionDescription || `${c.skinTone||""} skin, ${c.hairColor||""} ${c.hairStyle||""} hair, ${c.eyeColor||""} eyes, wearing ${c.outfit||c.description}`}`)
+      .join("; ");
 
-    // Use per-panel background vision desc if available (from Python pipeline)
     const bgVisual = config.backgroundVisionDesc || config.backgroundDesc || `${terrainDesc}, ${timeAtmosphere}`;
     const bgNote = `Background: ${bgVisual}`;
 
@@ -353,28 +329,19 @@ Context: ${artKeywords}, ${timeAtmosphere}, ${terrainDesc}
 Characters in this world: ${charList}
 ${bgNote}
 Scene style: ${artKeywords}, ${timeAtmosphere}
-Analyze the action and emotion in the panel, then choose the most cinematic camera angle:
-- CLOSE-UP: for intense emotion, dialogue, reaction shots
-- MEDIUM SHOT: for action between 2 characters, confrontation
-- WIDE SHOT: for establishing scene, epic moments, large environments
-- LOW ANGLE: for powerful/threatening characters, dominance
-- HIGH ANGLE: for vulnerability, overwhelmed characters
-- DUTCH ANGLE: for tension, unease, villain moments
-- OVER SHOULDER: for conversation, stalking, pursuit
-
-Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
-${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
+Choose the most cinematic camera angle and include character facial expressions, body language, lighting.
+${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals}` : ""}
 Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
         `Panel ${panelIdx + 1} action: ${panelDesc}
-        Identify the dominant emotion in this panel and choose the best camera angle to capture it.`
+        Identify the dominant emotion and choose the best camera angle.`
       );
       translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
       return prompt;
     } catch {
-      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
+      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed`;
     }
   }, []);
 
@@ -383,7 +350,7 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
 
 // ─────────────────────────────────────────────
 // AGENT 2: IMAGE AGENT
-// Dual-mode: Puter.js (real deployment) OR Claude SVG (sandbox fallback)
+// FIX #1: passage is now passed as a parameter instead of closed over
 // ─────────────────────────────────────────────
 function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null) {
   const illustratorRef = useRef(null);
@@ -395,8 +362,10 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
   const [genLog, setGenLog] = useState([]);
   const log = useCallback((msg) => setGenLog(l => [...l, msg]), []);
 
-  const callClaude = (system, userMsg, maxTokens = 1000) =>
-    callLLM(system, userMsg, maxTokens);
+  const extractSvg = (raw) => {
+    const m = raw.match(/<svg[\s\S]*<\/svg>/i);
+    return m ? m[0] : null;
+  };
 
   const generateViaHuggingFace = async (prompt, isPortrait) => {
     const res = await fetch("/api/generate", {
@@ -407,11 +376,6 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
     if (!res.ok) throw new Error("Image generation failed");
     const data = await res.json();
     return data.image;
-  };
-
-  const extractSvg = (raw) => {
-    const m = raw.match(/<svg[\s\S]*<\/svg>/i);
-    return m ? m[0] : null;
   };
 
   const generateViaSVG = async (prompt, isPortrait) => {
@@ -428,7 +392,7 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
 - Comic art: bold stroke="#111111" stroke-width="2.5" on all shapes, flat fills, clear silhouettes
 - Fill entire canvas background first
 - NO <text> or <script> elements`;
-    const raw = await callClaude(system, `Draw: ${prompt}`, 900);
+    const raw = await callLLM(system, `Draw: ${prompt}`, 900);
     return extractSvg(raw);
   };
 
@@ -472,7 +436,8 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
     return result;
   }, [translatorAgent, creditSystem, log, puterMode]);
 
-  const generateComic = useCallback(async (scene, characters, config, panelDescriptions, storyTitle) => {
+  // FIX #1: passage is now received as a parameter here
+  const generateComic = useCallback(async (scene, characters, config, panelDescriptions, storyTitle, passage) => {
     setGenerating(true);
     setGenLog([]);
     setPanelImages([]);
@@ -484,16 +449,16 @@ function useImageAgent(translatorAgent, creditSystem, puterMode, storyId = null)
     }
     try {
       log("📝 Writing dialogue...");
-      const dialogueRaw = await callClaude(
-       `You are a comic book script writer. Your ONLY job is to convert a passage into panel descriptions. Output ONLY valid JSON, no markdown, no explanation.`,
-`STRICT RULES:
+      const dialogueRaw = await callLLM(
+        `You are a comic book script writer. Your ONLY job is to convert a passage into panel descriptions. Output ONLY valid JSON, no markdown, no explanation.`,
+        `STRICT RULES:
 1. Every panel MUST describe a moment that actually happens in the passage below
 2. Use the EXACT character names from the passage
-3. Use the EXACT locations from the passage (do not replace or generalize)
+3. Use the EXACT locations from the passage
 4. Do NOT invent new events, characters, or settings
 5. Preserve the exact mood and tone of the passage
 
-PASSAGE (adapt this faithfully, word for word):
+PASSAGE (adapt this faithfully):
 "${passage}"
 
 CHARACTERS:
@@ -508,9 +473,9 @@ Return ONLY this JSON:
   "panelCount": <2-8>,
   "panels": [
     {
-      "description": "exact moment from passage — who, what, where, emotion, camera angle",
-      "background": "specific location from passage e.g. cathedral nave, ruined doorway, burning square",
-      "characters": ["ExactName1", "ExactName2"]
+      "description": "exact moment from passage",
+      "background": "specific location",
+      "characters": ["ExactName1"]
     }
   ]
 }`,
@@ -563,9 +528,9 @@ Return ONLY this JSON:
 
   return { characterSheets, panelImages, generating, genLog, generateCharacterPortrait, generateComic };
 }
+
 // ─────────────────────────────────────────────
 // UNIVERSAL IMAGE RENDERER
-// Handles both Puter URL images and SVG fallback
 // ─────────────────────────────────────────────
 function ComicImage({ result, alt, style = {} }) {
   if (!result || !result.value) {
@@ -579,7 +544,6 @@ function ComicImage({ result, alt, style = {} }) {
   if (result.type === "url") {
     return <img src={result.value} alt={alt} style={{ display: "block", objectFit: "cover", ...style }} />;
   }
-  // SVG mode — inline render
   return (
     <div style={{ lineHeight: 0, overflow: "hidden", ...style }}
       dangerouslySetInnerHTML={{ __html: result.value }} />
@@ -652,6 +616,8 @@ function OptionGrid({ options, selected, onSelect, cols = 3 }) {
   );
 }
 
+// FIX #3 & #5: Corrected step numbers to match actual navigation order
+// Flow: story-choice(1) → style(2) → passage(3) → confirm(4) → studio(5)
 function StepHeader({ step, total, title, subtitle }) {
   return (
     <div style={{ marginBottom: "28px" }}>
@@ -683,7 +649,6 @@ function SpeechBubble({ text, type = "speech" }) {
   );
 }
 
-
 const resizeBase64 = (base64, maxSize = 256) => new Promise((resolve) => {
   const img = new Image();
   img.onload = () => {
@@ -697,7 +662,6 @@ const resizeBase64 = (base64, maxSize = 256) => new Promise((resolve) => {
   img.src = base64;
 });
 
-// Credit Badge shown in top bar
 function CreditBadge({ credits, cost, label }) {
   const color = credits <= 3 ? C.danger : credits <= 8 ? C.warn : C.success;
   return (
@@ -728,18 +692,17 @@ function LoginScreen({ onLogin, puterMode }) {
     setLoading(true);
     try {
       if (tab === "register") {
-        if (!form.username.trim()) { setError("Username required."); return; }
-        if (!form.email.includes("@")) { setError("Valid email required."); return; }
-        if (form.password.length < 6) { setError("Password must be at least 6 characters."); return; }
+        if (!form.username.trim()) { setError("Username required."); setLoading(false); return; }
+        if (!form.email.includes("@")) { setError("Valid email required."); setLoading(false); return; }
+        if (form.password.length < 6) { setError("Password must be at least 6 characters."); setLoading(false); return; }
 
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
           options: { data: { username: form.username } },
         });
-        if (signUpError) { setError(signUpError.message); return; }
+        if (signUpError) { setError(signUpError.message); setLoading(false); return; }
 
-        // Wait briefly for trigger to create profile
         await new Promise(r => setTimeout(r, 800));
         const { data: profile } = await supabase
           .from("profiles").select("*").eq("id", data.user.id).single();
@@ -749,26 +712,27 @@ function LoginScreen({ onLogin, puterMode }) {
           username: form.username,
           email: form.email,
           trial_ends_at: profile?.trial_ends_at,
-          credits: profile?.credits ?? 20,
+          credits: profile?.credits ?? CREDITS.STARTING,
           trialExpired: false,
         });
       } else {
-        if (!form.email.includes("@")) { setError("Valid email required."); return; }
-        if (!form.password) { setError("Password required."); return; }
+        if (!form.email.includes("@")) { setError("Valid email required."); setLoading(false); return; }
+        if (!form.password) { setError("Password required."); setLoading(false); return; }
 
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email: form.email,
           password: form.password,
         });
         if (signInError) {
-            const msg = signInError.message.toLowerCase();
-            if (msg.includes("invalid") || msg.includes("not found")) {
-                setError("No account found. New here? Click REGISTER above to create your free 7-day trial.");
-            } else {
-                setError(signInError.message);
-            }
-            return;
-            }
+          const msg = signInError.message.toLowerCase();
+          if (msg.includes("invalid") || msg.includes("not found")) {
+            setError("No account found. New here? Click REGISTER above to create your free 7-day trial.");
+          } else {
+            setError(signInError.message);
+          }
+          setLoading(false);
+          return;
+        }
 
         const { data: profile } = await supabase
           .from("profiles").select("*").eq("id", data.user.id).single();
@@ -782,7 +746,7 @@ function LoginScreen({ onLogin, puterMode }) {
           username: profile?.username || form.email,
           email: data.user.email,
           trial_ends_at: profile?.trial_ends_at,
-          credits: profile?.credits ?? 20,
+          credits: profile?.credits ?? CREDITS.STARTING,
           trialExpired,
         });
       }
@@ -803,7 +767,7 @@ function LoginScreen({ onLogin, puterMode }) {
         <div style={{ marginTop: "8px", fontFamily: FONTS.ui, fontSize: "11px", letterSpacing: "2px", color: puterMode === "puter" ? C.success : puterMode === "svg" ? C.warn : C.gray }}>
           {puterMode === "loading" && "○ Detecting image backend..."}
           {puterMode === "puter"   && "● PUTER.JS READY — real AI images"}
-          {puterMode === "svg"     && "✏️ SVG MODE — preview only (Puter.js unavailable in sandbox)"}
+          {puterMode === "svg"     && "✏️ SVG MODE — preview only"}
         </div>
       </div>
 
@@ -825,16 +789,16 @@ function LoginScreen({ onLogin, puterMode }) {
           </div>
         )}
         {error && (
-            <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "10px 12px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px", lineHeight: 1.6 }}>
-                ⚠️ {error}
-                {error.includes("REGISTER") && (
-                <span onClick={() => { setTab("register"); setError(""); }}
-                    style={{ display: "block", marginTop: "6px", color: C.blue, cursor: "pointer", textDecoration: "underline" }}>
-                    → Switch to Register now
-                </span>
-                )}
-            </div>
+          <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "10px 12px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px", lineHeight: 1.6 }}>
+            ⚠️ {error}
+            {error.includes("REGISTER") && (
+              <span onClick={() => { setTab("register"); setError(""); }}
+                style={{ display: "block", marginTop: "6px", color: C.blue, cursor: "pointer", textDecoration: "underline" }}>
+                → Switch to Register now
+              </span>
             )}
+          </div>
+        )}
         <Btn onClick={handleSubmit} disabled={loading} style={{ width: "100%" }}>
           {loading ? "⟳ PLEASE WAIT..." : tab === "login" ? "▶ ENTER THE STUDIO" : "✦ CREATE ACCOUNT"}
         </Btn>
@@ -842,23 +806,24 @@ function LoginScreen({ onLogin, puterMode }) {
     </div>
   );
 }
+
 // ─────────────────────────────────────────────
 // SCREEN 2.1: STORY CHOICE
 // ─────────────────────────────────────────────
 function StoryChoiceScreen({ onNewStory, onOldStory }) {
   return (
     <div>
+      {/* FIX #3: Story choice is step 1 */}
       <StepHeader step={1} total={5} title="YOUR STORY" subtitle="Start fresh or continue where you left off." />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "12px" }}>
-        <Card style={{ textAlign: "center", cursor: "pointer", border: `4px solid ${C.gold}`, background: "#111" }}
-          onClick={onNewStory}>
+        <Card style={{ textAlign: "center", cursor: "pointer", border: `4px solid ${C.gold}`, background: "#111" }} onClick={onNewStory}>
           <div style={{ fontSize: "52px", marginBottom: "12px" }}>✨</div>
           <div style={{ fontFamily: FONTS.display, fontSize: "28px", color: C.gold, letterSpacing: "3px" }}>NEW STORY</div>
           <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: C.lightGray, marginTop: "8px", lineHeight: 1.6 }}>
             Describe your scene in your own words.<br/>AI will extract characters & setting automatically.
           </div>
           <div style={{ marginTop: "20px" }}>
-           <Btn variant="gold" onClick={onNewStory}>START CREATING ▶</Btn>
+            <Btn variant="gold" onClick={onNewStory}>START CREATING ▶</Btn>
           </div>
         </Card>
 
@@ -868,18 +833,21 @@ function StoryChoiceScreen({ onNewStory, onOldStory }) {
           <div style={{ fontFamily: FONTS.body, fontSize: "13px", color: C.lightGray, marginTop: "8px", lineHeight: 1.6 }}>
             Resume a previously saved comic.<br/>Your characters and scenes will be restored.
           </div>
-            <div style={{ marginTop: "20px" }}>
-                  <Btn variant="secondary" onClick={onOldStory}>CONTINUE ▶</Btn>
-            </div>
+          <div style={{ marginTop: "20px" }}>
+            <Btn variant="secondary" onClick={onOldStory}>CONTINUE ▶</Btn>
+          </div>
         </Card>
       </div>
     </div>
   );
 }
+
 // ─────────────────────────────────────────────
 // SCREEN 2.2: ScenePassageScreen
+// FIX #2: Added onBack to props destructuring
+// FIX #4: passage is stored inside extracted object so it propagates correctly
 // ─────────────────────────────────────────────
-function ScenePassageScreen({ onNext, updateScene, updateConfig, addCharacter }) {
+function ScenePassageScreen({ onNext, onBack }) {
   const [passage, setPassage] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
@@ -907,29 +875,28 @@ Return this exact structure:
       "build": "slim|athletic|average|stocky|muscular|petite",
       "skinTone": "pale|fair|olive|tan|brown|dark brown|ebony",
       "hairColor": "black|brown|blonde|red|grey|white|auburn|silver|blue|green|pink",
-      "hairStyle": "string (e.g. short curly, long straight, bald, mohawk, bun)",
+      "hairStyle": "string",
       "eyeColor": "brown|blue|green|grey|hazel|amber|black",
-      "outfit": "string (detailed clothing description)",
-      "distinguishing": "string (scars, tattoos, glasses, accessories, etc)",
-      "description": "string (full visual summary combining all above)",
-      "traits": "string (personality traits)"
+      "outfit": "string",
+      "distinguishing": "string",
+      "description": "string",
+      "traits": "string"
     }
   ],
   "backgroundDesc": "string",
   "hasBackground": true
-}
-If a detail is not mentioned in the passage, make a creative but fitting guess based on the character's role and the scene. Always return all fields.`,
+}`,
         `Scene passage: ${passage}`,
         800
       );
-        let clean = raw.replace(/```json|```/g, "").trim();
-        const start = clean.indexOf("{");
-        const end = clean.lastIndexOf("}");
-        if (start !== -1 && end !== -1) clean = clean.slice(start, end + 1);
-        // Sanitize smart quotes and control characters
-        clean = clean.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\x00-\x1F\x7F]/g, " ");
-        const data = JSON.parse(clean);
-      onNext({ passage, extracted: data });
+      let clean = raw.replace(/```json|```/g, "").trim();
+      const start = clean.indexOf("{");
+      const end = clean.lastIndexOf("}");
+      if (start !== -1 && end !== -1) clean = clean.slice(start, end + 1);
+      clean = clean.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\x00-\x1F\x7F]/g, " ");
+      const data = JSON.parse(clean);
+      // FIX #4: include passage in the extracted object so downstream screens have access
+      onNext({ passage, extracted: { ...data, passage } });
     } catch (err) {
       setError("Could not analyze the scene. Try adding more detail.");
     } finally {
@@ -939,7 +906,8 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
 
   return (
     <div>
-      <StepHeader step={2} total={5} title="DESCRIBE YOUR SCENE" subtitle="Write your scene in plain English. AI will do the rest." />
+      {/* FIX #3: Passage entry is step 3 (after story-choice + style) */}
+      <StepHeader step={3} total={5} title="DESCRIBE YOUR SCENE" subtitle="Write your scene in plain English. AI will do the rest." />
       <Card style={{ marginBottom: "20px" }}>
         <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "10px", letterSpacing: "1px" }}>
           ✍️ YOUR SCENE PASSAGE
@@ -947,7 +915,7 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
         <textarea
           value={passage}
           onChange={e => setPassage(e.target.value)}
-          placeholder={`Example: "It's a stormy night in Neo Tokyo. Commander Aria, a silver-haired warrior in red armor, faces off against the villain Krell on top of a rain-soaked skyscraper. Lightning illuminates their battle. Aria looks fierce but tired — she's been fighting all night."`}
+          placeholder={`Example: "It's a stormy night in Neo Tokyo. Commander Aria, a silver-haired warrior in red armor, faces off against the villain Krell on top of a rain-soaked skyscraper. Lightning illuminates their battle."`}
           rows={8}
           style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "12px", fontFamily: FONTS.body, fontSize: "14px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box", lineHeight: 1.7 }}
         />
@@ -964,13 +932,11 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
           <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gold, animation: "pulse 1s infinite", letterSpacing: "3px" }}>
             🔍 ANALYSING YOUR SCENE...
           </div>
-          <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#666", marginTop: "8px" }}>
-            Extracting characters, setting, background...
-          </div>
         </Card>
       )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        {/* FIX #2: onBack is now properly used from props */}
         <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
         <Btn onClick={analyzePassage} disabled={!passage.trim() || analyzing} variant="gold">
           {analyzing ? "⟳ ANALYSING..." : "🔍 ANALYSE SCENE ▶"}
@@ -979,48 +945,47 @@ If a detail is not mentioned in the passage, make a creative but fitting guess b
     </div>
   );
 }
+
 // ─────────────────────────────────────────────
 // SCREEN 2.3: SceneConfirmScreen
 // ─────────────────────────────────────────────
 function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
-    const [data, setData] = useState(extracted);
-    const [previews, setPreviews] = useState({});
-    const [loading, setLoading] = useState({});
+  const [data, setData] = useState(extracted);
+  const [previews, setPreviews] = useState({});
+  const [loading, setLoading] = useState({});
 
-    // Restore character portraits from vector DB on mount
-    useEffect(() => {
+  useEffect(() => {
     const restorePortraits = async () => {
-        const restoredPreviews = {};
-        await Promise.all(
+      const restoredPreviews = {};
+      await Promise.all(
         (extracted.characters || []).map(async (c, i) => {
-            try {
+          try {
             const embedRes = await fetch("/api/embed", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: `${c.name}, ${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, ${c.outfit || c.description}, ${c.distinguishing || ""}`.trim() }),
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: `${c.name}, ${c.role}, ${c.skinTone || ""} skin, ${c.hairColor || ""} ${c.hairStyle || ""} hair, ${c.eyeColor || ""} eyes, ${c.outfit || c.description}, ${c.distinguishing || ""}`.trim() }),
             });
             const embedData = await embedRes.json();
             if (!embedData.embedding) return;
             const { data: matches } = await supabase.rpc("match_scene_embeddings", {
-                query_embedding: embedData.embedding,
-                match_threshold: 0.75,
-                match_count: 1,
+              query_embedding: embedData.embedding,
+              match_threshold: 0.75,
+              match_count: 1,
             });
             if (matches?.length) {
-                restoredPreviews[`char_${i}`] = matches[0].image_data;
-                console.log(`✅ Restored portrait for ${c.name}`);
+              restoredPreviews[`char_${i}`] = matches[0].image_data;
             }
-            } catch (e) {
+          } catch (e) {
             console.warn(`Could not restore portrait for ${c.name}:`, e);
-            }
+          }
         })
-        );
-        if (Object.keys(restoredPreviews).length) {
+      );
+      if (Object.keys(restoredPreviews).length) {
         setPreviews(p => ({ ...p, ...restoredPreviews }));
-        }
+      }
     };
     restorePortraits();
-    }, []);
+  }, []);
 
   const generatePreview = async (key, prompt, description = null) => {
     setLoading(l => ({ ...l, [key]: true }));
@@ -1034,36 +999,31 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       if (d.image) {
         setPreviews(p => ({ ...p, [key]: d.image }));
 
-        // LLaVA vision description (same as Python's describe_image_with_vision)
         try {
-            const descRes = await fetch("/api/describe", {
+          const descRes = await fetch("/api/describe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: d.image }),
-            });
-            const descData = await descRes.json();
-            if (descData.description) {
+          });
+          const descData = await descRes.json();
+          if (descData.description) {
             if (key === "bg") {
-                // Store background vision description
-                setData(prev => ({ ...prev, backgroundVisionDesc: descData.description }));
-                console.log("✅ Background vision desc:", descData.description);
+              setData(prev => ({ ...prev, backgroundVisionDesc: descData.description }));
             } else if (key.startsWith("char_")) {
-                // Store character vision description
-                const idx = parseInt(key.split("_")[1]);
-                setData(prev => {
+              const idx = parseInt(key.split("_")[1]);
+              setData(prev => {
                 const chars = [...(prev.characters || [])];
                 if (chars[idx]) chars[idx] = { ...chars[idx], visionDescription: descData.description };
                 return { ...prev, characters: chars };
-                });
-                console.log(`✅ Character vision desc for char_${idx}:`, descData.description);
+              });
             }
-            }
+          }
         } catch (e) {
-            console.warn("LLaVA describe failed:", e);
+          console.warn("LLaVA describe failed:", e);
         }
 
         if (description) {
-                try {
+          try {
             const embedRes = await fetch("/api/embed", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1098,24 +1058,10 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
     setData(d => ({ ...d, characters: d.characters.filter((_, idx) => idx !== i) }));
   };
 
-  const PreviewBox = ({ previewKey, prompt, label, description  }) => (
-    <div style={{ marginTop: "10px" }}>
-      <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-        <Btn onClick={() => generatePreview(previewKey, prompt, description)} variant="secondary"
-          style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[previewKey] ? 0.6 : 1 }}>
-          {loading[previewKey] ? "⟳ GENERATING..." : previews[previewKey] ? "↺ REGENERATE" : `🖼 PREVIEW ${label}`}
-        </Btn>
-      </div>
-      {previews[previewKey] && (
-        <img src={previews[previewKey]} alt={label}
-          style={{ width: "100%", maxHeight: "200px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-      )}
-    </div>
-  );
-
   return (
     <div>
-      <StepHeader step={3} total={5} title="CONFIRM SCENE" subtitle="AI extracted this from your passage. Edit anything that's off." />
+      {/* FIX #3: Confirm is step 4 */}
+      <StepHeader step={4} total={5} title="CONFIRM SCENE" subtitle="AI extracted this from your passage. Edit anything that's off." />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
         <Card>
@@ -1137,22 +1083,22 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
       <Card style={{ marginBottom: "16px" }}>
         <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
-            <div>
-                <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
-                rows={4} placeholder="Describe the background environment..."
-                style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-                <Btn onClick={() => generatePreview("bg", `${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle, comic book illustration, bold ink outlines`, data.backgroundDesc)} variant="secondary"
-                style={{ marginTop: "8px", fontSize: "11px", padding: "6px 12px", opacity: loading["bg"] ? 0.6 : 1 }}>
-                {loading["bg"] ? "⟳ GENERATING..." : previews["bg"] ? "↺ REGENERATE" : "🖼 PREVIEW"}
-                </Btn>
-            </div>
-            <div>
-                {previews["bg"]
-                ? <img src={previews["bg"]} alt="background" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
-                }
-            </div>
-            </div>
+          <div>
+            <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
+              rows={4} placeholder="Describe the background environment..."
+              style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "10px", fontFamily: FONTS.body, fontSize: "13px", color: C.ink, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+            <Btn onClick={() => generatePreview("bg", `${data.backgroundDesc}, ${data.terrain}, ${data.timeOfDay}, establishing shot, wide angle, comic book illustration`, data.backgroundDesc)} variant="secondary"
+              style={{ marginTop: "8px", fontSize: "11px", padding: "6px 12px", opacity: loading["bg"] ? 0.6 : 1 }}>
+              {loading["bg"] ? "⟳ GENERATING..." : previews["bg"] ? "↺ REGENERATE" : "🖼 PREVIEW"}
+            </Btn>
+          </div>
+          <div>
+            {previews["bg"]
+              ? <img src={previews["bg"]} alt="background" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+              : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+            }
+          </div>
+        </div>
       </Card>
 
       <Card style={{ marginBottom: "16px" }}>
@@ -1176,16 +1122,16 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "10px", alignItems: "start" }}>
-               <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`, `${c.name}, ${c.description}, ${c.role}`)} variant="secondary"
-                    style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[`char_${i}`] ? 0.6 : 1 }}>
-                    {loading[`char_${i}`] ? "⟳ GENERATING..." : previews[`char_${i}`] ? "↺ REGENERATE" : "🖼 PREVIEW"}
-                </Btn>
-                <div>
-                    {previews[`char_${i}`]
-                    ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                    : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
-                    }
-                </div>
+              <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`, `${c.name}, ${c.description}, ${c.role}`)} variant="secondary"
+                style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[`char_${i}`] ? 0.6 : 1 }}>
+                {loading[`char_${i}`] ? "⟳ GENERATING..." : previews[`char_${i}`] ? "↺ REGENERATE" : "🖼 PREVIEW"}
+              </Btn>
+              <div>
+                {previews[`char_${i}`]
+                  ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                  : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                }
+              </div>
             </div>
           </div>
         ))}
@@ -1204,8 +1150,9 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
     </div>
   );
 }
+
 // ─────────────────────────────────────────────
-// SCREEN 2: OldStoryScreen
+// SCREEN: OldStoryScreen
 // ─────────────────────────────────────────────
 function OldStoryScreen({ user, onSelect, onBack }) {
   const [stories, setStories] = useState([]);
@@ -1263,211 +1210,31 @@ function OldStoryScreen({ user, onSelect, onBack }) {
     </div>
   );
 }
+
 // ─────────────────────────────────────────────
-// SCREEN 2: SCENE SETUP
+// SCREEN: ART STYLE (was "SceneScreen")
+// FIX #3: This is now correctly step 2 in the new-story flow
 // ─────────────────────────────────────────────
-function SceneScreen({ user, scene, onUpdate, onNext }) {
+function SceneScreen({ scene, onUpdate, onNext, onBack }) {
   const ready = scene.artStyle;
   return (
     <div>
-      <StepHeader step={4} total={5} title="CHOOSE ART STYLE" subtitle="Pick the visual style for your comic." />
+      {/* FIX #5: Art style is step 2, not step 4 */}
+      <StepHeader step={2} total={5} title="CHOOSE ART STYLE" subtitle="Pick the visual style for your comic." />
       <Card style={{ marginBottom: "24px" }}>
         <OptionGrid options={ART_OPTIONS} selected={scene.artStyle} onSelect={v => onUpdate({ artStyle: v })} cols={3} />
       </Card>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
-        <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: WRITE PANELS ▶</Btn>
+        <Btn onClick={onNext} disabled={!ready} variant="gold">NEXT: DESCRIBE SCENE ▶</Btn>
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────
-// SCREEN 3: CHARACTER CREATOR
+// FIX #8: getPanelLayout now handles 7 and 8 panels
 // ─────────────────────────────────────────────
-function CharacterScreen({ scene, characters, onAdd, onUpdate, onNext, imageAgent, creditSystem }) {
-  const [mode, setMode] = useState("list");
-  const [form, setForm] = useState({ name: "", description: "", traits: "", role: "hero" });
-  const [previewResult, setPreviewResult] = useState(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [previewError, setPreviewError] = useState("");
-  const [editIdx, setEditIdx] = useState(null);
-  const ROLES = ["Hero", "Villain", "Sidekick", "Mentor", "Neutral"];
-
-  const generatePreview = async () => {
-    if (!form.name || !form.description) return;
-    if (!creditSystem.canAfford(CREDITS.PORTRAIT)) {
-      setPreviewError(`Not enough credits. Portrait costs ${CREDITS.PORTRAIT} credits.`);
-      return;
-    }
-    setPreviewing(true);
-    setPreviewResult(null);
-    setPreviewError("");
-    try {
-      const result = await imageAgent.generateCharacterPortrait(form, scene.artStyle);
-      setPreviewResult(result?.value ? result : null);
-      if (!result?.value) setPreviewError("Generation returned no image. Try again.");
-    } catch (err) {
-      setPreviewError(err.message || "Generation failed. Try again.");
-    } finally {
-      setPreviewing(false);
-    }
-  };
-
-  const saveCharacter = () => {
-    const char = { ...form, imageResult: previewResult };
-    if (editIdx !== null) { onUpdate(editIdx, char); setEditIdx(null); }
-    else onAdd(char);
-    setForm({ name: "", description: "", traits: "", role: "hero" });
-    setPreviewResult(null);
-    setMode("list");
-  };
-
-  const startEdit = (idx) => {
-    setForm({ ...characters[idx] });
-    setPreviewResult(characters[idx].imageResult || null);
-    setEditIdx(idx);
-    setMode("creating");
-  };
-
-  if (mode === "creating") {
-    return (
-      <div>
-        <StepHeader step={2} total={5} title={editIdx !== null ? "EDIT CHARACTER" : "NEW CHARACTER"} subtitle="Describe, preview, and save your character." />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", minHeight: "500px" }}>
-          {/* LEFT: Form */}
-          <Card>
-            <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "18px", marginTop: 0 }}>📋 CHARACTER DETAILS</h3>
-            <Input label="NAME" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Commander Aria" />
-            <Input label="APPEARANCE" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. Tall woman, silver hair, red armor, battle scar on cheek" multiline />
-            <Input label="PERSONALITY & TRAITS" value={form.traits} onChange={v => setForm(f => ({ ...f, traits: v }))} placeholder="e.g. Fierce, protective, haunted by past" multiline />
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, display: "block", marginBottom: "8px" }}>ROLE</label>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {ROLES.map(r => (
-                  <div key={r} onClick={() => setForm(f => ({ ...f, role: r.toLowerCase() }))} style={{ padding: "5px 12px", background: form.role === r.toLowerCase() ? C.ink : C.lightGray, color: form.role === r.toLowerCase() ? C.gold : C.ink, border: `2px solid ${C.ink}`, fontFamily: FONTS.ui, fontSize: "12px", cursor: "pointer" }}>{r}</div>
-                ))}
-              </div>
-            </div>
-
-            {/* Credit info */}
-            <div style={{ background: "#1a1a1a", border: `2px solid ${C.gold}`, padding: "8px 12px", marginBottom: "14px", fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>
-              Preview costs <span style={{ color: C.gold }}>{CREDITS.PORTRAIT} credits</span> · You have <span style={{ color: creditSystem.credits <= 3 ? C.danger : C.success }}>{creditSystem.credits} credits</span>
-            </div>
-
-            {previewError && <div style={{ background: "#FFEBEE", border: `2px solid ${C.red}`, padding: "8px", fontFamily: FONTS.ui, fontSize: "12px", color: C.red, marginBottom: "12px" }}>⚠️ {previewError}</div>}
-
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <Btn onClick={generatePreview} disabled={!form.name || !form.description || previewing || !creditSystem.canAfford(CREDITS.PORTRAIT)} variant="secondary">
-                {previewing ? "⟳ GENERATING..." : `👁 PREVIEW (${CREDITS.PORTRAIT}cr)`}
-              </Btn>
-              <Btn onClick={saveCharacter} disabled={!form.name || !previewResult} variant="success">✓ SAVE</Btn>
-              <Btn onClick={() => { setMode("list"); setEditIdx(null); setPreviewResult(null); }} variant="ghost" small>✕</Btn>
-            </div>
-          </Card>
-
-          {/* RIGHT: Image preview */}
-          <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#111", border: `4px solid ${C.gold}` }}>
-            <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.gold, letterSpacing: "3px", marginBottom: "16px" }}>CHARACTER PREVIEW</div>
-            {previewing && (
-              <div style={{ textAlign: "center" }}>
-                <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-                <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gold, animation: "pulse 1s infinite", marginBottom: "8px" }}>🔤 TRANSLATING PROMPT...</div>
-                <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#666" }}>Agent 3 is optimizing for Puter.js</div>
-              </div>
-            )}
-            {!previewing && previewResult && (
-              <div style={{ width: "100%", maxWidth: "240px" }}>
-                <ComicImage result={previewResult} alt={form.name} style={{ width: "100%", minHeight: "200px", border: `4px solid ${C.gold}`, boxShadow: `0 0 20px ${C.gold}44` }} />
-                {form.name && <div style={{ textAlign: "center", marginTop: "10px", fontFamily: FONTS.display, fontSize: "20px", color: C.paper, letterSpacing: "2px" }}>{form.name}</div>}
-              </div>
-            )}
-            {!previewing && !previewResult && (
-              <div style={{ textAlign: "center", color: "#444", fontFamily: FONTS.body }}>
-                <div style={{ fontSize: "48px", marginBottom: "8px" }}>👤</div>
-                <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>Fill in Name + Appearance<br/>then hit PREVIEW</div>
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <StepHeader step={2} total={5} title="CHARACTERS" subtitle="Create your cast. Up to 6 characters." />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "14px", marginBottom: "20px" }}>
-        {characters.map((c, i) => (
-          <Card key={i} style={{ textAlign: "center", padding: "16px", cursor: "pointer" }} onClick={() => startEdit(i)}>
-            {c.imageResult?.value
-              ? <ComicImage result={c.imageResult} alt={c.name} style={{ width: "100%", height: "160px", border: `2px solid ${C.ink}`, marginBottom: "8px" }} />
-              : <div style={{ height: "80px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "40px" }}>👤</div>
-            }
-            <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink }}>{c.name}</div>
-            <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, textTransform: "uppercase", marginTop: "2px" }}>{c.role}</div>
-          </Card>
-        ))}
-        {characters.length < 6 && (
-          <div onClick={() => setMode("creating")} style={{ border: `3px dashed ${C.lightGray}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "180px", cursor: "pointer", color: C.lightGray, transition: "all 0.2s", minWidth: "0" }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.gold; e.currentTarget.style.color = C.gold; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.lightGray; e.currentTarget.style.color = C.lightGray; }}>
-            <div style={{ fontSize: "36px" }}>+</div>
-            <div style={{ fontFamily: FONTS.display, fontSize: "14px", letterSpacing: "2px" }}>ADD CHARACTER</div>
-          </div>
-        )}
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontFamily: FONTS.ui, fontSize: "12px", color: C.lightGray }}>{characters.length} character{characters.length !== 1 ? "s" : ""}</div>
-        <Btn onClick={onNext} disabled={characters.length === 0} variant="gold">NEXT: PAGE CONFIG ▶</Btn>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// SCREEN 4: PAGE CONFIG
-// ─────────────────────────────────────────────
-function ConfigScreen({ config, onUpdate, onNext, onBack, initPanels, creditSystem }) {
-  const panelOptions = [2, 3, 4, 5, 6, 8];
-  const cost = config.panelsPerPage * CREDITS.PANEL;
-  const canAfford = creditSystem.canAfford(cost);
-  const handleNext = () => { initPanels(config.panelsPerPage); onNext(); };
-
-  return (
-    <div>
-      <StepHeader step={3} total={5} title="PAGE LAYOUT" subtitle="Configure your comic page." />
-      <Card style={{ marginBottom: "20px" }}>
-        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>📐 PANELS PER PAGE</h3>
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px" }}>
-          {panelOptions.map(n => (
-            <div key={n} onClick={() => onUpdate({ panelsPerPage: n })} style={{ width: "58px", height: "58px", display: "flex", alignItems: "center", justifyContent: "center", background: config.panelsPerPage === n ? C.red : C.paper, border: `3px solid ${C.ink}`, cursor: "pointer", fontFamily: FONTS.display, fontSize: "28px", color: config.panelsPerPage === n ? C.white : C.ink, boxShadow: config.panelsPerPage === n ? "none" : `3px 3px 0 ${C.ink}`, transform: config.panelsPerPage === n ? "translate(2px,2px)" : "none" }}>{n}</div>
-          ))}
-        </div>
-        <div style={{ background: "#1a1a1a", border: `2px solid ${canAfford ? C.gold : C.danger}`, padding: "10px 14px", fontFamily: FONTS.ui, fontSize: "12px", color: canAfford ? C.gold : C.danger }}>
-          {config.panelsPerPage} panels × {CREDITS.PANEL} credits = <strong>{cost} credits</strong> · You have <strong>{creditSystem.credits}</strong>
-          {!canAfford && " — NOT ENOUGH CREDITS"}
-        </div>
-      </Card>
-
-      <Card style={{ marginBottom: "24px" }}>
-        <h3 style={{ fontFamily: FONTS.display, color: C.ink, fontSize: "20px", marginTop: 0 }}>🌆 BACKGROUND DETAIL</h3>
-        <div style={{ display: "flex", gap: "12px", marginBottom: "16px" }}>
-          {[{ v: false, label: "🧹 Clean — minimal background" }, { v: true, label: "🌍 Rich — full environment" }].map(opt => (
-            <div key={String(opt.v)} onClick={() => onUpdate({ hasBackground: opt.v })} style={{ flex: 1, padding: "14px", background: config.hasBackground === opt.v ? C.blue : C.paper, border: `3px solid ${C.ink}`, cursor: "pointer", color: config.hasBackground === opt.v ? C.white : C.ink, fontFamily: FONTS.body, fontSize: "14px", boxShadow: config.hasBackground === opt.v ? "none" : `3px 3px 0 ${C.ink}` }}>{opt.label}</div>
-          ))}
-        </div>
-        {config.hasBackground && <Input label="DESCRIBE BACKGROUND" value={config.backgroundDesc} onChange={v => onUpdate({ backgroundDesc: v })} placeholder="e.g. Crowded market, civilians fleeing, alien ships overhead..." multiline />}
-      </Card>
-
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
-        <Btn onClick={handleNext} disabled={!canAfford} variant="gold">NEXT: WRITE PANELS ▶</Btn>
-      </div>
-    </div>
-  );
-}
-
 const PANEL_COLORS = [
   { bg: "#FFF9E6", accent: "#FFD700", shadow: "#B8860B" },
   { bg: "#E8F4FD", accent: "#2196F3", shadow: "#0D47A1" },
@@ -1475,20 +1242,26 @@ const PANEL_COLORS = [
   { bg: "#E8F5E9", accent: "#4CAF50", shadow: "#1B5E20" },
   { bg: "#F3E5F5", accent: "#9C27B0", shadow: "#4A148C" },
   { bg: "#FFF3E0", accent: "#FF5722", shadow: "#BF360C" },
+  { bg: "#E0F7FA", accent: "#00BCD4", shadow: "#006064" },
+  { bg: "#FBE9E7", accent: "#FF7043", shadow: "#BF360C" },
 ];
+
 const getPanelLayout = (n) => {
   if (n === 1) return [[0]];
   if (n === 2) return [[0, 1]];
   if (n === 3) return [[0], [1, 2]];
   if (n === 4) return [[0, 1], [2, 3]];
   if (n === 5) return [[0, 1], [2, 3, 4]];
-  return [[0, 1, 2], [3, 4, 5]]; // 6+
+  if (n === 6) return [[0, 1, 2], [3, 4, 5]];
+  // FIX #8: Added cases for 7 and 8 panels
+  if (n === 7) return [[0, 1, 2], [3, 4], [5, 6]];
+  return [[0, 1, 2, 3], [4, 5, 6, 7]]; // 8
 };
 
 // ─────────────────────────────────────────────
-// SCREEN 4: Comic Studio
+// SCREEN 5: Comic Studio
+// FIX #7: passage and other key props are in useEffect dependency array
 // ─────────────────────────────────────────────
-
 function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, confirmedPreviews = {} }) {
   const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
@@ -1497,13 +1270,18 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genLog, setGenLog] = useState([]);
-  const [phase, setPhase] = useState("writing"); // "writing" | "generating" | "done"
+  const [phase, setPhase] = useState("writing");
   const log = (msg) => setGenLog(l => [...l, msg]);
 
-  // Step 1 — Auto write panels on mount
+  // FIX #7: useEffect now depends on passage so it runs with correct data
+  // Using a ref to prevent double-firing in StrictMode
+  const hasStarted = useRef(false);
   useEffect(() => {
+    if (hasStarted.current) return;
+    if (!passage || !scene.artStyle || characters.length === 0) return;
+    hasStarted.current = true;
     autoWriteAndGenerate();
-  }, []);
+  }, [passage, scene.artStyle, characters.length]);
 
   const autoWriteAndGenerate = async () => {
     setPhase("writing");
@@ -1512,49 +1290,43 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
     setLocalPanels([]);
     log("✍️ AI writing panel descriptions...");
     try {
-      // Auto-detect: does the passage already have explicit panel descriptions?
       const hasExplicitPanels = /panel\s*\d+|^\*\s|\d+\.\s/im.test(passage || "");
 
       const systemPrompt = `You are a comic book writer. Output ONLY valid JSON, no markdown.`;
 
       const userPrompt = hasExplicitPanels
-        ? // CASE 1: Passage has explicit panels — follow exactly
-          `The user has written a fully scripted scene with explicit panel descriptions and dialogue.
-      Your ONLY job is to extract them faithfully into JSON — do NOT invent, reorder, merge, or change anything.
+        ? `The user has written a fully scripted scene with explicit panel descriptions.
+Your ONLY job is to extract them faithfully into JSON.
 
-      STRICT RULES:
-      1. Use EXACTLY the panels as written — same order, same count.
-      2. Copy all dialogue word for word, including speaker names.
-      3. Preserve all locations exactly (e.g. "stone bridge", "tea house", "ruined cathedral").
-      4. Preserve all character names exactly as written.
-      5. Title should reflect the passage content.
+STRICT RULES:
+1. Use EXACTLY the panels as written — same order, same count.
+2. Copy all dialogue word for word, including speaker names.
+3. Preserve all locations exactly.
+4. Preserve all character names exactly as written.
 
-      PASSAGE:
-      "${passage}"
+PASSAGE:
+"${passage}"
 
-      Characters: ${characters.map(c => `${c.name} (${c.role})`).join(", ")}
+Characters: ${characters.map(c => `${c.name} (${c.role})`).join(", ")}
 
-      Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 full description including any dialogue verbatim", ...] }`
+Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 full description", ...] }`
 
-        : // CASE 2: Scene description only — LLM is creative
-          `The user has described a scene in general terms with no explicit panel breakdown.
-      Your job is to adapt it into a compelling comic — decide the panel count, write cinematic descriptions, and invent fitting dialogue.
+        : `The user has described a scene in general terms. Adapt it into a compelling comic.
 
-      CREATIVE RULES:
-      1. Stay true to the characters, setting, and mood described.
-      2. Invent natural, in-character dialogue — do not contradict anything stated.
-      3. Choose panel count (2–8) based on scene complexity.
-      4. Each panel: 1–2 sentences, cinematic camera angle, action + emotion.
-      5. Title should be dramatic and match the tone.
+CREATIVE RULES:
+1. Stay true to the characters, setting, and mood described.
+2. Invent natural, in-character dialogue.
+3. Choose panel count (2–8) based on scene complexity.
+4. Each panel: 1–2 sentences, cinematic camera angle, action + emotion.
 
-      PASSAGE:
-      "${passage}"
+PASSAGE:
+"${passage}"
 
-      Characters: ${characters.map(c => `${c.name} (${c.role}, ${c.description})`).join(", ")}
-      Setting: ${scene.terrain}, ${scene.timeOfDay}
-      Art style: ${scene.artStyle}
+Characters: ${characters.map(c => `${c.name} (${c.role}, ${c.description})`).join(", ")}
+Setting: ${scene.terrain}, ${scene.timeOfDay}
+Art style: ${scene.artStyle}
 
-      Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 description with dialogue if any", ...] }`;
+Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 description with dialogue if any", ...] }`;
 
       const raw = await callLLM(systemPrompt, userPrompt, 1400);
       log(hasExplicitPanels ? "📜 Explicit panels detected — following script exactly" : "✨ Scene description detected — AI writing creatively");
@@ -1562,31 +1334,30 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
       const newTitle = data.title || "UNTITLED";
       const rawPanels = data.panels || [];
 
-    // Normalize — handle both string array (old) and object array (new)
       const newPanels = rawPanels.map(p =>
-      typeof p === "string"
-        ? { description: p, background: null, characters: [] }
-        : p
-    );
+        typeof p === "string"
+          ? { description: p, background: null, characters: [] }
+          : p
+      );
 
-    setTitle(newTitle);
-    setComicTitle(newTitle);
-    initPanels(newPanels.length);
-    newPanels.forEach((p, i) => onUpdate(i, p.description));
-    log(`✅ ${newPanels.length} panels written`);
-    setAutoGenerating(false);
-    await generateAllPanels(newPanels, newTitle);
+      setTitle(newTitle);
+      setComicTitle(newTitle);
+      initPanels(newPanels.length);
+      newPanels.forEach((p, i) => onUpdate(i, p.description));
+      log(`✅ ${newPanels.length} panels written`);
+      setAutoGenerating(false);
+      await generateAllPanels(newPanels, newTitle);
     } catch (err) {
       log("⚠️ Auto-write failed: " + err.message);
       setAutoGenerating(false);
+      setPhase("done");
     }
   };
 
   const generateAllPanels = async (panels, t) => {
-  // Support both old string array and new object array
-  const descs = panels.map(p => typeof p === "string" ? p : p.description);
-  const panelBgs = panels.map(p => (typeof p === "object" && p.background) ? p.background : null);
-  const panelChars = panels.map(p => (typeof p === "object" && p.characters) ? p.characters : []);
+    const descs = panels.map(p => typeof p === "string" ? p : p.description);
+    const panelBgs = panels.map(p => (typeof p === "object" && p.background) ? p.background : null);
+
     setPhase("generating");
     setGenerating(true);
     const totalCost = descs.length * CREDITS.PANEL;
@@ -1597,7 +1368,6 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
       return;
     }
 
-    // Write dialogue
     log("📝 Writing dialogue...");
     let dialogueData;
     try {
@@ -1614,29 +1384,25 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     }
     log("✅ Dialogue written");
 
-    // Translate prompts
     log("🔤 Optimizing prompts...");
     const translatedPrompts = await Promise.all(
-        descs.map((desc, i) => translator.translatePanel(
-            desc, i, scene, characters, {
-            ...config,
-            // Use per-panel background if available, fall back to global
-            backgroundVisionDesc: panelBgs[i]
-                ? panelBgs[i]
-                : (config.backgroundVisionDesc || config.backgroundDesc),
-            }
-        ))
-        );
+      descs.map((desc, i) => translator.translatePanel(
+        desc, i, scene, characters, {
+          ...config,
+          backgroundVisionDesc: panelBgs[i]
+            ? panelBgs[i]
+            : (config.backgroundVisionDesc || config.backgroundDesc),
+        }
+      ))
+    );
     log("✅ Prompts optimized");
 
-    // Generate images
     log(`🎨 Generating ${descs.length} panel images...`);
     const results = await Promise.all(
       translatedPrompts.map(async (prompt, i) => {
         try {
           await creditSystem.deduct(CREDITS.PANEL);
 
-          // Character reference image lookup
           const panelText = descs[i].toLowerCase();
           const matchedChar = characters.find(c => c.name && panelText.includes(c.name.toLowerCase()));
           let referenceImage = null;
@@ -1674,7 +1440,6 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
             referenceImage = await resizeBase64(confirmedPreviews["bg"], 256);
           }
 
-          // Generate panel image
           const res = await fetch("/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1682,7 +1447,6 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
           });
           const d = await res.json();
 
-          // Store in vector DB
           try {
             const embedRes = await fetch("/api/embed", {
               method: "POST",
@@ -1725,21 +1489,21 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     setGenerating(false);
     setPhase("done");
     log("🎉 Comic complete!");
+
     if (currentStoryId) {
-    const panelsToSave = builtPanels.map(p => ({
+      const panelsToSave = builtPanels.map(p => ({
         description: p.description,
         sfx: p.sfx,
         dialogue: p.dialogue,
         optimizedPrompt: p.optimizedPrompt,
-        // skip imageResult — images are in vector DB
-    }));
-    await updateStory(currentStoryId, {
+      }));
+      await updateStory(currentStoryId, {
         title: t,
         panels: panelsToSave,
         status: "complete",
-    });
+      });
     }
-   };
+  };
 
   const regeneratePanel = async (i) => {
     setRegenerating(r => ({ ...r, [i]: true }));
@@ -1762,10 +1526,9 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
   };
 
   const addPanel = () => {
-    const newDesc = "";
     const newLen = localPanels.length + 1;
     initPanels(newLen);
-    onUpdate(newLen - 1, newDesc);
+    onUpdate(newLen - 1, "");
     setLocalPanels(p => [...p, { description: "", imageResult: null, sfx: null, dialogue: [] }]);
   };
 
@@ -1776,7 +1539,6 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     updated.forEach((p, i) => onUpdate(i, p.description));
   };
 
-  // Loading screen
   if (phase === "writing" || (phase === "generating" && !localPanels.length)) {
     return (
       <div style={{ minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -1798,18 +1560,16 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
     <div>
       <style>{`@keyframes comicIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}`}</style>
 
-      {/* Top bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
         <h1 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,3vw,36px)", color: C.gold, margin: 0, letterSpacing: "4px" }}>{title}</h1>
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
           <CreditBadge credits={creditSystem.credits} />
-          <Btn onClick={autoWriteAndGenerate} disabled={autoGenerating || generating} variant="secondary" small>↺ REGENERATE ALL</Btn>
+          <Btn onClick={() => { hasStarted.current = false; autoWriteAndGenerate(); }} disabled={autoGenerating || generating} variant="secondary" small>↺ REGENERATE ALL</Btn>
           <Btn onClick={onBack} variant="secondary" small>◀ BACK</Btn>
           <Btn onClick={onReset} variant="secondary" small>🔄 NEW COMIC</Btn>
         </div>
       </div>
 
-      {/* Split layout */}
       <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: "20px", alignItems: "start" }}>
 
         {/* LEFT — Panel editor */}
@@ -1856,49 +1616,49 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
 
           {generating && (
             <div style={{ textAlign: "center", padding: "20px", fontFamily: FONTS.display, fontSize: "16px", color: C.gold }}>
-              <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-              <div style={{ animation: "pulse 1s infinite" }}>⚡ GENERATING IMAGES...</div>
+              <style>{`@keyframes pulse2{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+              <div style={{ animation: "pulse2 1s infinite" }}>⚡ GENERATING IMAGES...</div>
             </div>
           )}
 
-     {(() => {
-            const rows = getPanelLayout(Math.min(localPanels.length, 6));
+          {(() => {
+            const rows = getPanelLayout(Math.min(localPanels.length, 8)); // FIX #8: up to 8
             return rows.map((row, rowIdx) => (
-                <div key={rowIdx} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, 1fr)`, gap: "10px", marginBottom: "10px" }}>
+              <div key={rowIdx} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, 1fr)`, gap: "10px", marginBottom: "10px" }}>
                 {row.map((panelIdx) => {
-                    const panel = localPanels[panelIdx];
-                    if (!panel) return null;
-                    const i = panelIdx;
-                    const col = PANEL_COLORS[i % PANEL_COLORS.length];
-                    const minHeight = row.length === 1 ? "480px" : row.length === 2 ? "380px" : "300px";
-                    return (
+                  const panel = localPanels[panelIdx];
+                  if (!panel) return null;
+                  const i = panelIdx;
+                  const col = PANEL_COLORS[i % PANEL_COLORS.length];
+                  const minHeight = row.length === 1 ? "480px" : row.length === 2 ? "380px" : "300px";
+                  return (
                     <div key={i} style={{ background: col.bg, border: `4px solid ${regenerating[i] ? C.gold : C.ink}`, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: `5px 5px 0 ${col.shadow}`, position: "relative", transition: "border 0.3s", minHeight }}>
-                        <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
-                        <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
-                        {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
-                        {regenerating[i] && (
+                      <div style={{ position: "absolute", inset: 0, backgroundImage: `radial-gradient(circle, ${col.accent}15 1px, transparent 1px)`, backgroundSize: "10px 10px", pointerEvents: "none", zIndex: 1 }} />
+                      <div style={{ position: "absolute", top: "6px", left: "6px", background: C.ink, color: col.accent, fontFamily: FONTS.display, fontSize: "14px", width: "22px", height: "22px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, border: `2px solid ${col.accent}` }}>{i + 1}</div>
+                      {panel.sfx && <div style={{ position: "absolute", top: "26px", right: "4px", fontFamily: FONTS.display, fontSize: "16px", color: col.shadow, transform: "rotate(10deg)", textShadow: `2px 2px 0 ${col.accent}`, zIndex: 10 }}>{panel.sfx}</div>}
+                      {regenerating[i] && (
                         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
-                            <div style={{ fontFamily: FONTS.display, fontSize: "14px", color: C.gold, animation: "pulse 1s infinite" }}>⟳</div>
+                          <div style={{ fontFamily: FONTS.display, fontSize: "14px", color: C.gold, animation: "pulse 1s infinite" }}>⟳</div>
                         </div>
-                        )}
-                        <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
+                      )}
+                      <div style={{ padding: "28px 6px 4px", zIndex: 2, flex: 1 }}>
                         <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "220px", border: `2px solid ${col.accent}` }} />
-                        </div>
-                        <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
+                      </div>
+                      <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
                         {panel.dialogue?.map((d, j) => (
-                            <div key={j}>
+                          <div key={j}>
                             {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
                             <SpeechBubble text={d.text} type={d.type || "speech"} />
-                            </div>
+                          </div>
                         ))}
-                        </div>
+                      </div>
                     </div>
-                    );
+                  );
                 })}
-                </div>
+              </div>
             ));
-            })()}
-            <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
+          })()}
+          <div style={{ textAlign: "center", marginTop: "14px", paddingTop: "10px", borderTop: `3px solid ${C.ink}`, fontFamily: FONTS.display, fontSize: "14px", color: "#888", letterSpacing: "4px" }}>★ TO BE CONTINUED... ★</div>
         </div>
       </div>
     </div>
@@ -1911,9 +1671,10 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
 export default function ComicSmith() {
   const [step, setStep] = useState("login");
   const [comicTitle, setComicTitle] = useState("");
-  const puterMode = usePuter(); // "loading" | "puter" | "svg"
+  const puterMode = usePuter();
   const ctx = useContextAgent();
-  const creditSystem = useCreditSystem(ctx.user?.username);
+  // FIX #6: pass ctx.user?.credits as initialCredits so returning users keep their balance
+  const creditSystem = useCreditSystem(ctx.user?.username, ctx.user?.credits ?? null);
   const translator = useTranslatorAgent();
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
@@ -1921,44 +1682,39 @@ export default function ComicSmith() {
   const [isOldStory, setIsOldStory] = useState(false);
   const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
-  const handleGenerate = async (title) => {
-    setComicTitle(title);
-    setStep("output");
-    const panels = await img.generateComic(ctx.scene, ctx.characters, ctx.config, ctx.panelDescriptions, title);
-    
-    // Update story with final panels + title
-    await updateStory(currentStoryId, {
-        title,
-        panels,
-        status: "complete",
-    });
-    };
-
   const saveStory = async (storyData) => {
     if (!ctx.user?.id) return null;
     const { data, error } = await supabase.from("stories").insert({
-        user_id: ctx.user.id,
-        title: storyData.title || "Untitled",
-        passage: storyData.passage,
-        scene: storyData.scene,
-        characters: storyData.characters,
-        config: storyData.config,
-        status: "draft",
+      user_id: ctx.user.id,
+      title: storyData.title || "Untitled",
+      passage: storyData.passage,
+      scene: storyData.scene,
+      characters: storyData.characters,
+      config: storyData.config,
+      status: "draft",
     }).select().single();
     if (error) console.error("Save story error:", error);
     return data;
-    };
+  };
 
   const updateStory = async (storyId, updates) => {
     if (!storyId) return;
     await supabase.from("stories").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", storyId);
-    };
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
 
-      {step === "login" && <LoginScreen onLogin={(u) => { ctx.login(u); setStep(u.trialExpired ? "expired" : "story-choice"); }} puterMode={puterMode} />}
+      {step === "login" && (
+        <LoginScreen
+          onLogin={(u) => {
+            ctx.login(u);
+            setStep(u.trialExpired ? "expired" : "story-choice");
+          }}
+          puterMode={puterMode}
+        />
+      )}
 
       {step === "expired" && (
         <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.ink }}>
@@ -1977,7 +1733,7 @@ export default function ComicSmith() {
         </div>
       )}
 
-      {step !== "login" && (
+      {step !== "login" && step !== "expired" && (
         <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
           {/* Top bar */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
@@ -1987,42 +1743,104 @@ export default function ComicSmith() {
               <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.lightGray }}>👤 {ctx.user?.username}</div>
             </div>
           </div>
-          {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("style")} onOldStory={() => setStep("old-story")} />}
-          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} onSelect={(story) => {
-            // Lock the art style from original story
-            if (story.scene) ctx.updateScene(story.scene);
-            if (story.config) ctx.updateConfig(story.config);
-            setCurrentStoryId(story.id);
-            setIsOldStory(true);
-            // Go to passage for new continuation
-            setStep("passage");
-          }} />}
-          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
-          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
-          {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
-            ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
-            ctx.updateConfig({ 
-                hasBackground: data.hasBackground, 
-                backgroundDesc: data.backgroundDesc,
-                backgroundVisionDesc: data.backgroundVisionDesc || data.backgroundDesc,
+
+          {step === "story-choice" && (
+            <StoryChoiceScreen
+              onNewStory={() => setStep("style")}
+              onOldStory={() => setStep("old-story")}
+            />
+          )}
+
+          {step === "old-story" && (
+            <OldStoryScreen
+              user={ctx.user}
+              onBack={() => setStep("story-choice")}
+              onSelect={(story) => {
+                if (story.scene) ctx.updateScene(story.scene);
+                if (story.config) ctx.updateConfig(story.config);
+                setCurrentStoryId(story.id);
+                setIsOldStory(true);
+                setStep("passage");
+              }}
+            />
+          )}
+
+          {/* FIX #3/#5: art style is step 2, comes before passage */}
+          {step === "style" && (
+            <SceneScreen
+              scene={ctx.scene}
+              onUpdate={ctx.updateScene}
+              onBack={() => setStep("story-choice")}
+              onNext={() => setStep("passage")}
+            />
+          )}
+
+          {step === "passage" && (
+            <ScenePassageScreen
+              onBack={() => isOldStory ? setStep("old-story") : setStep("style")}
+              onNext={({ passage, extracted }) => {
+                // FIX #4: store passage alongside extracted data
+                setExtractedScene({ ...extracted, passage });
+                setStep("confirm");
+              }}
+            />
+          )}
+
+          {step === "confirm" && extractedScene && (
+            <SceneConfirmScreen
+              extracted={extractedScene}
+              onBack={() => setStep("passage")}
+              onConfirm={async (data, previews) => {
+                ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
+                ctx.updateConfig({
+                  hasBackground: data.hasBackground,
+                  backgroundDesc: data.backgroundDesc,
+                  backgroundVisionDesc: data.backgroundVisionDesc || data.backgroundDesc,
                 });
-            data.characters.forEach(c => ctx.addCharacter(c));
-            
-            // Save draft to Supabase
-            const story = await saveStory({
-                passage: extractedScene?.passage,
-                scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
-                characters: data.characters,
-                config: ctx.config,
-                previews: previews || {}, 
-            });
-            if (story) setCurrentStoryId(story.id);
-            setConfirmedPreviews(previews || {});
-            
-            setStep("studio");
-            }} />}
-         {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
+                data.characters.forEach(c => ctx.addCharacter(c));
+
+                const story = await saveStory({
+                  passage: extractedScene.passage,
+                  scene: { ...ctx.scene, timeOfDay: data.timeOfDay, terrain: data.terrain },
+                  characters: data.characters,
+                  config: ctx.config,
+                });
+                if (story) setCurrentStoryId(story.id);
+                setConfirmedPreviews(previews || {});
+                setStep("studio");
+              }}
+            />
+          )}
+
+          {step === "studio" && (
+            <ComicStudio
+              scene={ctx.scene}
+              characters={ctx.characters}
+              config={ctx.config}
+              panelDescriptions={ctx.panelDescriptions}
+              onUpdate={ctx.updatePanelDesc}
+              initPanels={ctx.initPanels}
+              imageAgent={img}
+              translator={translator}
+              creditSystem={creditSystem}
+              // FIX #7: passage is now reliably passed from extractedScene
+              passage={extractedScene?.passage}
+              currentStoryId={currentStoryId}
+              onBack={() => setStep("confirm")}
+              onReset={() => {
+                setStep("story-choice");
+                setExtractedScene(null);
+                setCurrentStoryId(null);
+                setConfirmedPreviews({});
+                setIsOldStory(false);
+                setComicTitle("");
+              }}
+              comicTitle={comicTitle}
+              setComicTitle={setComicTitle}
+              updateStory={updateStory}
+              confirmedPreviews={confirmedPreviews}
+            />
+          )}
         </div>
       )}
     </div>
