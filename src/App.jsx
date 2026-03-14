@@ -364,7 +364,8 @@ Analyze the action and emotion in the panel, then choose the most cinematic came
 
 Include in prompt: chosen camera angle, character facial expression (specific emotion), body language, eye direction, lighting that matches mood
 ${charVisuals ? `IMPORTANT: Visual character details: ${charVisuals.replace(/\b(scar|wound|battle|weapon|sword|knife|gun|blood)\b/gi, match => ({ scar: "marking", wound: "marking", battle: "worn", weapon: "accessory", sword: "prop", knife: "prop", gun: "prop", blood: "" })[match.toLowerCase()] || "")}` : ""}
-Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
+// REPLACE:
+Append: ${artKeywords}, highly detailed comic panel, professional comic book illustration, 2D illustration, NOT photographic, NO text, NO speech bubbles, NO dialogue bubbles, NO captions, NO words, NO letters, NO subtitles ${scene.artStyle === "manga" || scene.artStyle === "noir" ? ", black and white only, NO color, grayscale, monochrome" : ""}`;
 
     try {
       const prompt = await callClaude(system,
@@ -374,7 +375,7 @@ Append: ${artKeywords}, highly detailed comic panel, professional comic book ill
       translationLog.current.push({ type: "panel", input: panelDesc, output: prompt });
       return prompt;
     } catch {
-      return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, illustration only`;
+     return `${charVisuals ? charVisuals + ", " : ""}${panelDesc}, ${terrainDesc}, ${timeAtmosphere}, ${artKeywords}, comic book panel, highly detailed, NO photography, NO realistic, NO stock photo, NO text, NO speech bubbles, NO words, illustration only`;
     }
   }, []);
 
@@ -1893,11 +1894,11 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
                         <ComicImage result={panel.imageResult} alt={`Panel ${i+1}`} style={{ width: "100%", minHeight: "220px", border: `2px solid ${col.accent}` }} />
                         </div>
                         <div style={{ padding: "4px 8px 10px", zIndex: 2, display: "flex", flexDirection: "column", gap: "3px" }}>
-                        {panel.dialogue?.map((d, j) => (
-                            <div key={j}>
-                            {d.speaker && d.type !== "narration" && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
+                        {panel.dialogue?.filter(d => d.type !== "narration").map((d, j) => (
+                          <div key={j}>
+                            {d.speaker && <div style={{ fontFamily: FONTS.display, fontSize: "9px", color: col.shadow, paddingLeft: "6px", textTransform: "uppercase", letterSpacing: "1px" }}>{d.speaker}:</div>}
                             <SpeechBubble text={d.text} type={d.type || "speech"} />
-                            </div>
+                          </div>
                         ))}
                         </div>
                     </div>

@@ -25,7 +25,7 @@ export default async function handler(req, res) {
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ prompt: safePrompt, image: imageArray, strength: 0.65, num_steps: 20, width, height }),
+          body: JSON.stringify({ prompt: safePrompt, negative_prompt: "text, speech bubbles, dialogue bubbles, captions, words, letters, watermark, subtitles, written text", image: imageArray, strength: 0.65, num_steps: 20, width, height }),
         }
       );
     } else {
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ prompt, num_steps: 4, width, height }),
+          body: JSON.stringify({ prompt: `${prompt}. No text, no speech bubbles, no words, no captions, no watermarks.`, num_steps: 4, width, height }),
         }
       );
     }
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       if (referenceImage) {
         const fallback = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-          { method: "POST", headers, body: JSON.stringify({ prompt, num_steps: 4, width, height }) }
+          { method: "POST", headers, body: JSON.stringify({ prompt: `${prompt}. No text, no speech bubbles, no words, no captions, no watermarks.`, num_steps: 4, width, height }) }
         );
         const arr = await fallback.arrayBuffer();
         const b64 = Buffer.from(arr).toString("base64");
