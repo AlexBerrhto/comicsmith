@@ -879,7 +879,7 @@ function StoryChoiceScreen({ onNewStory, onOldStory }) {
 // ─────────────────────────────────────────────
 // SCREEN 2.2: ScenePassageScreen
 // ─────────────────────────────────────────────
-function ScenePassageScreen({ onNext, updateScene, updateConfig, addCharacter }) {
+function ScenePassageScreen({ onNext, onBack }) {
   const [passage, setPassage] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
@@ -1266,7 +1266,7 @@ function OldStoryScreen({ user, onSelect, onBack }) {
 // ─────────────────────────────────────────────
 // SCREEN 2: SCENE SETUP
 // ─────────────────────────────────────────────
-function SceneScreen({ user, scene, onUpdate, onNext }) {
+function SceneScreen({ user, scene, onUpdate, onNext, onBack }) {
   const ready = scene.artStyle;
   return (
     <div>
@@ -1918,6 +1918,7 @@ export default function ComicSmith() {
   const [extractedScene, setExtractedScene] = useState(null);
   const [currentStoryId, setCurrentStoryId] = useState(null);
   const [confirmedPreviews, setConfirmedPreviews] = useState({});
+  const [passage, setPassage] = useState("");
   const [isOldStory, setIsOldStory] = useState(false);
   const img = useImageAgent(translator, creditSystem, puterMode, currentStoryId);
 
@@ -1998,7 +1999,7 @@ export default function ComicSmith() {
             setStep("passage");
           }} />}
           {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
-          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={({ extracted }) => { setExtractedScene(extracted); setStep("confirm"); }} />}
+          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={({ passage: p, extracted }) => { setPassage(p); setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ 
@@ -2010,7 +2011,7 @@ export default function ComicSmith() {
             
             // Save draft to Supabase
             const story = await saveStory({
-                passage: extractedScene?.passage,
+                passage: passage,
                 scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
                 characters: data.characters,
                 config: ctx.config,
@@ -2022,7 +2023,7 @@ export default function ComicSmith() {
             setStep("studio");
             }} />}
          {step === "scene" && !isOldStory && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onNext={() => setStep("studio")} />}
-         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={extractedScene?.passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
+         {step === "studio" && <ComicStudio scene={ctx.scene} characters={ctx.characters} config={ctx.config} panelDescriptions={ctx.panelDescriptions} onUpdate={ctx.updatePanelDesc} initPanels={ctx.initPanels} imageAgent={img} translator={translator} creditSystem={creditSystem} passage={passage} currentStoryId={currentStoryId} onBack={() => setStep("confirm")} onReset={() => setStep("story-choice")} comicTitle={comicTitle} setComicTitle={setComicTitle} updateStory={updateStory} confirmedPreviews={confirmedPreviews} />}
         </div>
       )}
     </div>
