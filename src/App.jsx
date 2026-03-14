@@ -1826,7 +1826,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         </div>
 
         {/* RIGHT — Comic page */}
-        <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "20px", boxShadow: `10px 10px 0 #333`, animation: "comicIn 0.5s ease-out" }}>
+        <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "24px", minWidth: "700px", boxShadow: `10px 10px 0 #333`, animation: "comicIn 0.5s ease-out" }}>
           <div style={{ textAlign: "center", borderBottom: `4px solid ${C.ink}`, paddingBottom: "14px", marginBottom: "16px" }}>
             <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>{title}</h2>
             <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#888", marginTop: "4px", letterSpacing: "3px" }}>◆ {scene.artStyle?.toUpperCase()} · {scene.terrain?.toUpperCase()} · {scene.timeOfDay?.toUpperCase()} ◆</div>
@@ -1956,7 +1956,7 @@ export default function ComicSmith() {
       )}
 
       {step !== "login" && (
-        <div style={{ maxWidth: "920px", margin: "0 auto" }}>
+        <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
           {/* Top bar */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px", flexWrap: "wrap", gap: "12px" }}>
             <div style={{ fontFamily: FONTS.display, fontSize: "26px", color: C.gold, letterSpacing: "4px", textShadow: `2px 2px 0 ${C.ink}` }}>COMICSMITH</div>
