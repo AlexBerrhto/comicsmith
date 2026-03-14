@@ -1510,18 +1510,52 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
     setLocalPanels([]);
     log("✍️ AI writing panel descriptions...");
     try {
-      const raw = await callLLM(
-        `You are a comic book writer. Output ONLY valid JSON, no markdown.`,
-        `Analyze this scene and decide the optimal number of panels (between 2 and 8), then write descriptions for each.
-Scene passage: "${passage || "A dramatic scene"}"
-Characters: ${characters.map(c => `${c.name} (${c.role}, ${c.description})`).join(", ")}
-Setting: ${scene.terrain}, ${scene.timeOfDay}
-Art style: ${scene.artStyle}
-Return: { "title": "COMIC TITLE IN CAPS", "panelCount": 4, "panels": ["panel 1 description", ...] }
-Choose panelCount based on scene complexity. Simple = 2-3 panels. Complex = 5-8 panels.
-Each panel: 1-2 sentences, action + who is present + emotion + camera angle. Make it dramatic and cinematic.`,
-        1000
-      );
+      // Auto-detect: does the passage already have explicit panel descriptions?
+      const hasExplicitPanels = /panel\s*\d+|^\*\s|\d+\.\s/im.test(passage || "");
+
+      const systemPrompt = `You are a comic book writer. Output ONLY valid JSON, no markdown.`;
+
+      const userPrompt = hasExplicitPanels
+        ? // CASE 1: Passage has explicit panels — follow exactly
+          `The user has written a fully scripted scene with explicit panel descriptions and dialogue.
+      Your ONLY job is to extract them faithfully into JSON — do NOT invent, reorder, merge, or change anything.
+
+      STRICT RULES:
+      1. Use EXACTLY the panels as written — same order, same count.
+      2. Copy all dialogue word for word, including speaker names.
+      3. Preserve all locations exactly (e.g. "stone bridge", "tea house", "ruined cathedral").
+      4. Preserve all character names exactly as written.
+      5. Title should reflect the passage content.
+
+      PASSAGE:
+      "${passage}"
+
+      Characters: ${characters.map(c => `${c.name} (${c.role})`).join(", ")}
+
+      Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 full description including any dialogue verbatim", ...] }`
+
+        : // CASE 2: Scene description only — LLM is creative
+          `The user has described a scene in general terms with no explicit panel breakdown.
+      Your job is to adapt it into a compelling comic — decide the panel count, write cinematic descriptions, and invent fitting dialogue.
+
+      CREATIVE RULES:
+      1. Stay true to the characters, setting, and mood described.
+      2. Invent natural, in-character dialogue — do not contradict anything stated.
+      3. Choose panel count (2–8) based on scene complexity.
+      4. Each panel: 1–2 sentences, cinematic camera angle, action + emotion.
+      5. Title should be dramatic and match the tone.
+
+      PASSAGE:
+      "${passage}"
+
+      Characters: ${characters.map(c => `${c.name} (${c.role}, ${c.description})`).join(", ")}
+      Setting: ${scene.terrain}, ${scene.timeOfDay}
+      Art style: ${scene.artStyle}
+
+      Return: { "title": "TITLE IN CAPS", "panelCount": <number>, "panels": ["panel 1 description with dialogue if any", ...] }`;
+
+      const raw = await callLLM(systemPrompt, userPrompt, 1400);
+      log(hasExplicitPanels ? "📜 Explicit panels detected — following script exactly" : "✨ Scene description detected — AI writing creatively");
       const data = JSON.parse(raw.replace(/```json|```/g, "").trim());
       const newTitle = data.title || "UNTITLED";
       const rawPanels = data.panels || [];
