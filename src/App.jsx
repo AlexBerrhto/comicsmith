@@ -661,7 +661,15 @@ function StepHeader({ step, total, title, subtitle }) {
         ))}
         <span style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px" }}>STEP {step} / {total}</span>
       </div>
-      <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(26px,4vw,42px)", color: C.paper, margin: "0 0 4px", letterSpacing: "3px", textShadow: `3px 3px 0 ${C.ink}` }}>{title}</h2>
+      {pageNumber === 1 ? (
+        <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>
+          {storyTitle || title}
+        </h2>
+      ) : (
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.gray, letterSpacing: "3px" }}>
+          {storyTitle} · PAGE {pageNumber}
+        </div>
+      )}
       {subtitle && <p style={{ fontFamily: FONTS.body, color: C.lightGray, margin: 0, fontSize: "14px" }}>{subtitle}</p>}
     </div>
   );
@@ -1988,6 +1996,37 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
   );
 }
 
+
+function TitleScreen({ onNext, onBack }) {
+  const [title, setTitle] = useState("");
+  return (
+    <div>
+      <StepHeader step={2} total={5} title="NAME YOUR STORY" subtitle="This title appears on the first page only. Asked once per story." />
+      <Card style={{ marginBottom: "24px" }}>
+        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "12px", letterSpacing: "1px" }}>
+          📖 STORY TITLE
+        </div>
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value.toUpperCase())}
+          placeholder="E.G. SHADOW OF THE CITY..."
+          style={{ width: "100%", background: "#FFFDF5", border: `3px solid ${C.ink}`, padding: "14px", fontFamily: FONTS.display, fontSize: "24px", letterSpacing: "3px", color: C.ink, outline: "none", boxSizing: "border-box" }}
+          onKeyDown={e => e.key === "Enter" && title.trim() && onNext(title.trim())}
+        />
+        <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gray, marginTop: "8px" }}>
+          This is asked only once. All pages of this story will carry this title.
+        </div>
+      </Card>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <Btn onClick={onBack} variant="secondary">◀ BACK</Btn>
+        <Btn onClick={() => onNext(title.trim())} disabled={!title.trim()} variant="gold">
+          NEXT: DESCRIBE SCENE ▶
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────
@@ -2074,17 +2113,20 @@ export default function ComicSmith() {
             </div>
           </div>
           {step === "story-choice" && <StoryChoiceScreen onNewStory={() => setStep("style")} onOldStory={() => setStep("old-story")} />}
-          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} loadPages={loadPages} onSelect={(story) => {
-            // Lock the art style from original story
+          {step === "old-story" && <OldStoryScreen user={ctx.user} onBack={() => setStep("story-choice")} loadPages={loadPages} onSelect={async (story) => {
             if (story.scene) ctx.updateScene(story.scene);
             if (story.config) ctx.updateConfig(story.config);
             setCurrentStoryId(story.id);
+            setStoryTitle(story.title || "");
+            setComicTitle(story.title || "");
             setIsOldStory(true);
-            // Go to passage for new continuation
+            const existingPages = await loadPages(story.id);
+            setPageNumber(existingPages.length + 1);
             setStep("passage");
           }} />}
-          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onBack={() => setStep("story-choice")} onNext={() => setStep("passage")} />}
-          {step === "passage" && <ScenePassageScreen onBack={() => setStep("style")} onNext={({ passage: p, extracted }) => { setPassage(p); setExtractedScene(extracted); setStep("confirm"); }} />}
+          {step === "style" && <SceneScreen user={ctx.user} scene={ctx.scene} onUpdate={ctx.updateScene} onBack={() => setStep("story-choice")} onNext={() => setStep("title")} />}
+          {step === "title" && <TitleScreen onBack={() => setStep("style")} onNext={(t) => { setStoryTitle(t); setComicTitle(t); setStep("passage"); }} />}
+          {step === "passage" && <ScenePassageScreen onBack={() => setStep("title")} onNext={({ passage: p, extracted }) => { setPassage(p); setExtractedScene(extracted); setStep("confirm"); }} />}
           {step === "confirm" && <SceneConfirmScreen extracted={extractedScene} onBack={() => setStep("passage")} onConfirm={async (data, previews) => {
             ctx.updateScene({ timeOfDay: data.timeOfDay, terrain: data.terrain });
             ctx.updateConfig({ 
