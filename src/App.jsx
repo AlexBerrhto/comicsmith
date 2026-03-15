@@ -1569,7 +1569,6 @@ const getPanelLayout = (n) => {
 // ─────────────────────────────────────────────
 
 function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, savePage, userId, storyTitle, pageNumber = 1, confirmedPreviews = {} }) {
-  const [title, setTitle] = useState(comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
   const [regenerating, setRegenerating] = useState({});
