@@ -1561,7 +1561,7 @@ const getPanelLayout = (n) => {
 // ─────────────────────────────────────────────
 
 function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, savePage, userId, storyTitle, pageNumber = 1, confirmedPreviews = {} }) {
-  const [title, setTitle] = useState(storyTitle || comicTitle || "");
+  const [title] = useState(storyTitle || comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
   const [regenerating, setRegenerating] = useState({});
@@ -1640,7 +1640,6 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
       if (s !== -1 && e !== -1) clean = clean.slice(s, e + 1);
       clean = clean.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\x00-\x1F\x7F]/g, " ");
       const data = JSON.parse(clean);
-      const newTitle = data.title || "UNTITLED";
       const rawPanels = data.panels || [];
 
     // Normalize — handle both string array (old) and object array (new)
@@ -1649,14 +1648,11 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
         ? { description: p, background: null, characters: [] }
         : p
     );
-
-    setTitle(newTitle);
-    setComicTitle(newTitle);
     initPanels(newPanels.length);
     newPanels.forEach((p, i) => onUpdate(i, p.description));
     log(`✅ ${newPanels.length} panels written`);
     setAutoGenerating(false);
-    await generateAllPanels(newPanels, newTitle);
+    await generateAllPanels(newPanels, storyTitle);
     } catch (err) {
       log("⚠️ Auto-write failed: " + err.message);
       setAutoGenerating(false);
@@ -1815,7 +1811,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         // skip imageResult — images are in vector DB
     }));
     await updateStory(currentStoryId, {
-        title: t,
+        title: storyTitle || t,
         panels: panelsToSave,
         status: "complete",
     });
@@ -2223,11 +2219,12 @@ export default function ComicSmith() {
             
             // Save draft to Supabase
             const story = await saveStory({
-                passage: passage,
-                scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
-                characters: data.characters,
-                config: ctx.config,
-                previews: previews || {}, 
+              title: storyTitle,
+              passage: passage,
+              scene: { timeOfDay: data.timeOfDay, terrain: data.terrain },
+              characters: data.characters,
+              config: ctx.config,
+              previews: previews || {},
             });
             if (story) setCurrentStoryId(story.id);
             setConfirmedPreviews(previews || {});
