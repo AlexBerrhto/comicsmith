@@ -1150,10 +1150,10 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
                 </Btn>
             </div>
             <div>
-                {previews["bg"]
-                ? <img src={previews["bg"]} alt="background" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
-                }
+              {previews["bg"]
+                ? <img src={previews["bg"]} alt="background" style={{ width: "100%", height: "150px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                : <div style={{ width: "100%", height: "150px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+              }
             </div>
             </div>
       </Card>
@@ -1185,8 +1185,8 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
                 </Btn>
                 <div>
                     {previews[`char_${i}`]
-                    ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                    : <div style={{ width: "100%", aspectRatio: "1", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                      ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", height: "120px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                      : <div style={{ width: "100%", height: "120px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
                     }
                 </div>
             </div>
