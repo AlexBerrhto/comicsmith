@@ -661,15 +661,7 @@ function StepHeader({ step, total, title, subtitle }) {
         ))}
         <span style={{ fontFamily: FONTS.ui, fontSize: "11px", color: C.gold, letterSpacing: "2px" }}>STEP {step} / {total}</span>
       </div>
-      {pageNumber === 1 ? (
-        <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>
-          {storyTitle || title}
-        </h2>
-      ) : (
-        <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.gray, letterSpacing: "3px" }}>
-          {storyTitle} · PAGE {pageNumber}
-        </div>
-      )}
+      <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(26px,4vw,42px)", color: C.paper, margin: "0 0 4px", letterSpacing: "3px", textShadow: `3px 3px 0 ${C.ink}` }}>{title}</h2>
       {subtitle && <p style={{ fontFamily: FONTS.body, color: C.lightGray, margin: 0, fontSize: "14px" }}>{subtitle}</p>}
     </div>
   );
@@ -1569,6 +1561,7 @@ const getPanelLayout = (n) => {
 // ─────────────────────────────────────────────
 
 function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, initPanels, imageAgent, translator, creditSystem, passage, currentStoryId, onBack, onReset, comicTitle, setComicTitle, updateStory, savePage, userId, storyTitle, pageNumber = 1, confirmedPreviews = {} }) {
+  const [title, setTitle] = useState(storyTitle || comicTitle || "");
   const [localPanels, setLocalPanels] = useState([]);
   const [editDesc, setEditDesc] = useState({});
   const [regenerating, setRegenerating] = useState({});
@@ -1940,7 +1933,15 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         {/* RIGHT — Comic page */}
         <div style={{ background: "#F5EDD6", border: `6px solid ${C.ink}`, padding: "24px", minWidth: "700px", boxShadow: `10px 10px 0 #333`, animation: "comicIn 0.5s ease-out" }}>
           <div style={{ textAlign: "center", borderBottom: `4px solid ${C.ink}`, paddingBottom: "14px", marginBottom: "16px" }}>
-            <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>{title}</h2>
+            {pageNumber === 1 ? (
+              <h2 style={{ fontFamily: FONTS.display, fontSize: "clamp(20px,4vw,40px)", color: C.red, margin: 0, letterSpacing: "5px", textShadow: `3px 3px 0 ${C.gold}, 5px 5px 0 ${C.ink}`, textTransform: "uppercase" }}>
+                {storyTitle || title}
+              </h2>
+            ) : (
+              <div style={{ fontFamily: FONTS.display, fontSize: "20px", color: C.gray, letterSpacing: "3px" }}>
+                {storyTitle} · PAGE {pageNumber}
+              </div>
+            )}
             <div style={{ fontFamily: FONTS.ui, fontSize: "11px", color: "#888", marginTop: "4px", letterSpacing: "3px" }}>◆ {scene.artStyle?.toUpperCase()} · {scene.terrain?.toUpperCase()} · {scene.timeOfDay?.toUpperCase()} ◆</div>
           </div>
 
@@ -2078,6 +2079,63 @@ export default function ComicSmith() {
     await supabase.from("stories").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", storyId);
     };
 
+  const savePage = async (storyId, userId, panels, pageTitle) => {
+    if (!userId || !storyId) return null;
+
+    // Upload each panel image to Supabase Storage
+    const savedPanels = await Promise.all(panels.map(async (panel, i) => {
+      if (!panel.imageResult?.value || !panel.imageResult.value.startsWith("data:")) {
+        return { ...panel, imageResult: panel.imageResult };
+      }
+      try {
+        const base64Data = panel.imageResult.value.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const fileName = `${userId}/${storyId}/page_${Date.now()}_panel_${i}.png`;
+        const { data, error } = await supabase.storage
+          .from("comic-pages")
+          .upload(fileName, buffer, { contentType: "image/png", upsert: true });
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from("comic-pages").getPublicUrl(fileName);
+        return { ...panel, imageResult: { type: "url", value: urlData.publicUrl } };
+      } catch (e) {
+        console.warn(`Panel ${i} upload failed:`, e);
+        return { ...panel, imageResult: { type: "url", value: null } };
+      }
+    }));
+
+    // Get current page count for this story
+    const { count } = await supabase
+      .from("story_pages")
+      .select("*", { count: "exact", head: true })
+      .eq("story_id", storyId);
+
+    const { data, error } = await supabase.from("story_pages").insert({
+      story_id: storyId,
+      user_id: userId,
+      page_number: (count || 0) + 1,
+      title: pageTitle,
+      panels: savedPanels.map(p => ({
+        description: p.description,
+        imageUrl: p.imageResult?.value,
+        dialogue: p.dialogue,
+        sfx: p.sfx,
+      })),
+    }).select().single();
+
+    if (error) { console.error("Save page error:", error); return null; }
+    return data;
+  };
+
+  const loadPages = async (storyId) => {
+    const { data, error } = await supabase
+      .from("story_pages")
+      .select("*")
+      .eq("story_id", storyId)
+      .order("page_number", { ascending: true });
+    if (error) { console.error("Load pages error:", error); return []; }
+    return data || [];
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: step === "login" ? C.ink : "#1C0E00", backgroundImage: step !== "login" ? `repeating-linear-gradient(0deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px),repeating-linear-gradient(90deg,transparent,transparent 59px,#2a1500 59px,#2a1500 60px)` : undefined, padding: step === "login" ? "0" : "28px 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&display=swap" rel="stylesheet" />
@@ -2154,63 +2212,6 @@ export default function ComicSmith() {
       )}
     </div>
   );
+
+  
 }
-
-// Add after updateStory function:
-const savePage = async (storyId, userId, panels, pageTitle) => {
-  if (!userId || !storyId) return null;
-
-  // Upload each panel image to Supabase Storage
-  const savedPanels = await Promise.all(panels.map(async (panel, i) => {
-    if (!panel.imageResult?.value || !panel.imageResult.value.startsWith("data:")) {
-      return { ...panel, imageResult: panel.imageResult };
-    }
-    try {
-      const base64Data = panel.imageResult.value.replace(/^data:image\/\w+;base64,/, "");
-      const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      const fileName = `${userId}/${storyId}/page_${Date.now()}_panel_${i}.png`;
-      const { data, error } = await supabase.storage
-        .from("comic-pages")
-        .upload(fileName, buffer, { contentType: "image/png", upsert: true });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from("comic-pages").getPublicUrl(fileName);
-      return { ...panel, imageResult: { type: "url", value: urlData.publicUrl } };
-    } catch (e) {
-      console.warn(`Panel ${i} upload failed:`, e);
-      return { ...panel, imageResult: { type: "url", value: null } };
-    }
-  }));
-
-  // Get current page count for this story
-  const { count } = await supabase
-    .from("story_pages")
-    .select("*", { count: "exact", head: true })
-    .eq("story_id", storyId);
-
-  // REPLACE:
-  const { data, error } = await supabase.from("story_pages").insert({
-    story_id: storyId,
-    user_id: userId,
-    page_number: (count || 0) + 1,
-    title: pageTitle,
-    panels: savedPanels.map(p => ({
-      description: p.description,
-      imageUrl: p.imageResult?.value,
-      dialogue: p.dialogue,
-      sfx: p.sfx,
-    })),
-  }).select().single();
-
-  if (error) { console.error("Save page error:", error); return null; }
-  return data;
-};
-
-const loadPages = async (storyId) => {
-  const { data, error } = await supabase
-    .from("story_pages")
-    .select("*")
-    .eq("story_id", storyId)
-    .order("page_number", { ascending: true });
-  if (error) { console.error("Load pages error:", error); return []; }
-  return data || [];
-};
