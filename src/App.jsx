@@ -1151,8 +1151,8 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             </div>
             <div>
               {previews["bg"]
-                ? <img src={previews["bg"]} alt="background" style={{ width: "160px", height: "100px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                : <div style={{ width: "160px", height: "100px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "12px", color: C.gray }}>NO PREVIEW</div>
+                ? <img src={previews["bg"]} alt="background" style={{ width: "300px", height: "300px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                : <div style={{ width: "300px", height: "300px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "12px", color: C.gray }}>NO PREVIEW</div>
 
               }
             </div>
