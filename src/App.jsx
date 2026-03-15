@@ -1139,7 +1139,7 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
 
       <Card style={{ marginBottom: "16px" }}>
         <div style={{ fontFamily: FONTS.display, fontSize: "16px", color: C.ink, marginBottom: "8px" }}>🌆 BACKGROUND</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "16px", alignItems: "start" }}>
             <div>
                 <textarea value={data.backgroundDesc} onChange={e => setData(d => ({ ...d, backgroundDesc: e.target.value }))}
                 rows={4} placeholder="Describe the background environment..."
@@ -1151,8 +1151,9 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
             </div>
             <div>
               {previews["bg"]
-                ? <img src={previews["bg"]} alt="background" style={{ width: "100%", height: "150px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                : <div style={{ width: "100%", height: "150px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                ? <img src={previews["bg"]} alt="background" style={{ width: "160px", height: "100px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
+                : <div style={{ width: "160px", height: "100px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "12px", color: C.gray }}>NO PREVIEW</div>
+
               }
             </div>
             </div>
@@ -1178,15 +1179,15 @@ function SceneConfirmScreen({ extracted, onConfirm, onBack }) {
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
             <input value={c.traits} onChange={e => updateChar(i, "traits", e.target.value)} placeholder="Personality traits"
               style={{ width: "100%", marginTop: "6px", padding: "6px 10px", fontFamily: FONTS.body, fontSize: "13px", border: `2px solid ${C.ink}`, background: "#FFFDF5", color: C.ink, boxSizing: "border-box" }} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "10px", alignItems: "start" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginTop: "10px", alignItems: "start" }}>
                <Btn onClick={() => generatePreview(`char_${i}`, `${c.name}, ${c.description}, ${c.role}, portrait, comic book character, bold ink outlines, flat colors`, `${c.name}, ${c.description}, ${c.role}`)} variant="secondary"
                     style={{ fontSize: "11px", padding: "6px 12px", opacity: loading[`char_${i}`] ? 0.6 : 1 }}>
                     {loading[`char_${i}`] ? "⟳ GENERATING..." : previews[`char_${i}`] ? "↺ REGENERATE" : "🖼 PREVIEW"}
                 </Btn>
                 <div>
                     {previews[`char_${i}`]
-                      ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "100%", height: "120px", objectFit: "cover", border: `3px solid ${C.ink}`, display: "block" }} />
-                      : <div style={{ width: "100%", height: "120px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "14px", color: C.gray }}>NO PREVIEW</div>
+                      ? <img src={previews[`char_${i}`]} alt={c.name} style={{ width: "160px", height: "100px", objectFit: "cover", objectPosition: "top", border: `3px solid ${C.ink}`, display: "block" }} />
+                      : <div style={{ width: "160px", height: "100px", background: "#E8E0CC", border: `3px dashed ${C.gray}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONTS.display, fontSize: "12px", color: C.gray }}>NO PREVIEW</div>
                     }
                 </div>
             </div>
