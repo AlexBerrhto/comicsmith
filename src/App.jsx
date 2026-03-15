@@ -1568,7 +1568,12 @@ function ComicStudio({ scene, characters, config, panelDescriptions, onUpdate, i
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genLog, setGenLog] = useState([]);
-  const [phase, setPhase] = useState("writing"); // "writing" | "generating" | "done"
+  const [phase, setPhase] = useState("writing");// "writing" | "generating" | "done"
+  const [toast, setToast] = useState({ visible: false, message: "" });
+  const showToast = (message) => {
+    setToast({ visible: true, message });
+    setTimeout(() => setToast({ visible: false, message: "" }), 3000);
+  };
   const log = (msg) => setGenLog(l => [...l, msg]);
 
   // Step 1 — Auto write panels on mount
@@ -1871,6 +1876,7 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
   }
 
   return (
+    <>
     <div>
       <style>{`@keyframes comicIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}`}</style>
 
@@ -1884,8 +1890,13 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
             if (!currentStoryId || !localPanels.length) return;
             log("💾 Saving page...");
             const saved = await savePage(currentStoryId, userId, localPanels, title);
-            if (saved) log(`✅ Page ${saved.page_number} saved!`);
-            else log("⚠️ Save failed");
+            if (saved) {
+              log(`✅ Page ${saved.page_number} saved!`);
+              showToast(`Page ${saved.page_number} saved to your stories!`);
+            } else {
+              log("⚠️ Save failed");
+              showToast("Save failed — please try again.");
+            }
           }} disabled={!localPanels.length || generating} variant="success" small>💾 SAVE PAGE</Btn>
           <Btn onClick={onBack} variant="secondary" small>◀ BACK</Btn>
           <Btn onClick={onReset} variant="secondary" small>🔄 NEW COMIC</Btn>
@@ -1993,6 +2004,8 @@ Return: { "panels": [ { "sfx": "WORD or null", "dialogue": [ { "speaker": "Name 
         </div>
       </div>
     </div>
+   <Toast message={toast.message} visible={toast.visible} />
+  </>
   );
 }
 
@@ -2027,6 +2040,21 @@ function TitleScreen({ onNext, onBack }) {
   );
 }
 
+function Toast({ message, visible }) {
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: "fixed", bottom: "32px", left: "50%", transform: "translateX(-50%)",
+      background: C.ink, border: `3px solid ${C.gold}`, padding: "14px 28px",
+      fontFamily: FONTS.display, fontSize: "18px", color: C.gold, letterSpacing: "2px",
+      boxShadow: `4px 4px 0 ${C.gold}`, zIndex: 9999,
+      animation: "toastIn 0.3s ease-out",
+    }}>
+      ✅ {message}
+      <style>{`@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+    </div>
+  );
+}
 // ─────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────
@@ -2211,7 +2239,6 @@ export default function ComicSmith() {
         </div>
       )}
     </div>
+    
   );
-
-  
 }
