@@ -7,6 +7,14 @@ ComicSmith is an AI-powered comic generation engine built to solve the "continui
 ) | [**wireframes**](https://www.figma.com/proto/enCXHcRexBeVHOb3H5arVc/Untitled?node-id=0-1&t=BomYrTyHFwDkETwt-1)
 
 ---
+##  Examples of Output
+ **Promt:** "The emergency lights of the derelict freighter Icarus pulse a rhythmic, bloody red. Captain Elara, clad in a dented exoskeleton suit, braces herself against the airlock door as the creature claws from the other side. Through the viewing port, the cold swirl of a nebula serves as the silent backdrop to her struggle. Her oxygen gauge is flashing a warning, but she refuses to let go of the lever."
+
+ **Output:** 
+ <img src="./media/screenshot1.jpg" width="600" alt="ComicSmith Dashboard">
+
+
+---
 
 ## 🚀 The Product "Why" (Market Problem)
 As a writer and comic enthusiast, I identified a significant friction in the current AI creative landscape:
