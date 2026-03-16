@@ -3,7 +3,7 @@
 
 ComicSmith is an AI-powered comic generation engine built to solve the "continuity gap" in AI art. While most tools create isolated images, ComicSmith uses a **Stateful Orchestration Layer** to maintain character consistency and narrative flow across multiple panels, ensuring that the story you start is the story you finish.
 
-[**Live Demo**](https://comicsmith.vercel.app/) | [**System Architecture**](#architecture)
+[**Live Demo**](https://comicsmith.vercel.app/) | [**System Architecture**](./media/architecture.jpg) | [**wireframes**](https://www.figma.com/proto/enCXHcRexBeVHOb3H5arVc/Untitled?node-id=0-1&t=BomYrTyHFwDkETwt-1)
 
 ---
 
