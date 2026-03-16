@@ -8,7 +8,7 @@ ComicSmith is an AI-powered comic generation engine built to solve the "continui
 
 ---
 ##  Examples of Output
- **Promt:** "The emergency lights of the derelict freighter Icarus pulse a rhythmic, bloody red. Captain Elara, clad in a dented exoskeleton suit, braces herself against the airlock door as the creature claws from the other side. Through the viewing port, the cold swirl of a nebula serves as the silent backdrop to her struggle. Her oxygen gauge is flashing a warning, but she refuses to let go of the lever."
+ **Prompt:** "The emergency lights of the derelict freighter Icarus pulse a rhythmic, bloody red. Captain Elara, clad in a dented exoskeleton suit, braces herself against the airlock door as the creature claws from the other side. Through the viewing port, the cold swirl of a nebula serves as the silent backdrop to her struggle. Her oxygen gauge is flashing a warning, but she refuses to let go of the lever."
 
  **Output:** 
  <img src="./media/Sampleimage1.jpeg" width="600" alt="ComicSmith Dashboard">
