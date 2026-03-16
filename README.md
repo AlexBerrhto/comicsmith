@@ -17,7 +17,8 @@ ComicSmith is an AI-powered comic generation engine built to solve the "continui
   **Prompt:** "The scent of cedar and rain hangs heavy over the Philosopher's Path as the cherry blossoms begin to drift like pink snow. Haruto, a quiet artist with ink-stained fingers, stands on the stone bridge, his heart racing as he spots Ami approaching through the morning mist. She stops, her bright yellow umbrella a sharp contrast against the soft greys of the temple gates, her breath hitching when their eyes finally meet after three long years apart. Watching from the doorway of a nearby tea house, Mrs. Sato—the elderly shopkeeper who once delivered their secret letters—wipes a stray tear from her cheek, adjusting her kimono as she prepares two cups of matcha, knowing that some stories are simply meant to find their way home."
 
  **Output:** 
- <img src="./media/Sampleimage2.jpeg" width="600" alt="ComicSmith Dashboard">
+ 
+ <img src="./media/sampleimage2.jpeg" width="600" alt="ComicSmith Dashboard">
 
 
 ---
